@@ -5,7 +5,7 @@ slug: donn-es-stock-es-brutes-conversions-uniquement-l
 title: Données stockées brutes, conversions uniquement à l'ingest
 created: 2026-10-05T08:20:38Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/**
   - hosts/**
@@ -13,8 +13,12 @@ scope:
   - pc/mote/ingest/**
 constraint: |
   Le casque stocke poses et profondeur telles que fournies par la source, avec leur convention déclarée. Conversions de repère et linéarisation de profondeur se font uniquement à l'ingest.
+ratified: dccd27fd092b
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:52Z
 schema: 4
-version: 1
+version: 2
 ---
 
 - **Contexte** : les conventions de repère (Unity main gauche, OpenXR, OpenGL, OpenCV) sont une source d'erreur fréquente ; les notes de migration de SRC-1 en témoignent. `[SOURCE]` Le même raisonnement vaut pour la profondeur non linéaire.
