@@ -5,14 +5,18 @@ slug: mcap-comme-format-de-fichier-de-session
 title: MCAP comme format de fichier de session
 created: 2026-10-05T08:20:36Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/mote-mcap/**
   - pc/mote/ingest/**
 constraint: |
   Les sessions sont stockées en MCAP (canaux typés protobuf, chunks zstd, index), sur le casque comme sur le PC. Le flux réseau n'est pas du MCAP.
+ratified: 5a3f45cf7f20
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:49Z
 schema: 4
-version: 1
+version: 2
 ---
 
 - **Contexte** : plusieurs flux horodatés hétérogènes à enregistrer et à rejouer.
