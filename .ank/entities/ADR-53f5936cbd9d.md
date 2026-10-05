@@ -5,13 +5,17 @@ slug: s-lection-des-paires-bord-avant-encodage
 title: Sélection des paires à bord, avant encodage
 created: 2026-10-05T08:20:38Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/mote-core/**
 constraint: |
   La sélection des keyframes se fait dans le core avant encodage, par seuils de mouvement et de netteté, de façon atomique par paire gauche/droite. Un mode tout enregistrer reste disponible.
+ratified: 17d1915d5964
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:53Z
 schema: 4
-version: 1
+version: 2
 ---
 
 - **Contexte** : encoder et transmettre toutes les paires coûte du CPU et du débit pour peu de gain.
