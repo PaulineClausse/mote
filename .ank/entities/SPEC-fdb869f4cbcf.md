@@ -5,13 +5,17 @@ slug: api-c-du-core-mote-h
 title: API C du core (mote.h)
 created: 2026-10-05T08:20:40Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/mote-capi/**
   - hosts/unity/**
 references: [ADR-7a169c5d5e26]
+ratified: 0fd9fd114add
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:56Z
 schema: 4
-version: 1
+version: 2
 ---
 
 Principes : handles opaques ; structures plates commençant par `struct_size` ; aucune structure C++ à la frontière ; aucun callback vers l'hôte ; état et événements récupérés par polling ; les buffers passés aux fonctions `mote_push_*` ne sont lus que pendant l'appel (le core copie ce qu'il conserve) ; toutes les fonctions sont appelables depuis n'importe quel thread.
