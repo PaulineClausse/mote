@@ -5,12 +5,16 @@ slug: protocole-d-valuation-et-m-triques
 title: Protocole d'évaluation et métriques
 created: 2026-10-05T08:20:41Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - pc/mote/eval/**
   - pc/mote/train/**
+ratified: 6e7bef57a843
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:57Z
 schema: 4
-version: 1
+version: 2
 ---
 
 ### 13.1 Protocole de comparaison
