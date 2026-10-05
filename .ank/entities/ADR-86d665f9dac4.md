@@ -5,14 +5,18 @@ slug: pas-de-stockage-brut-jpeg-logiciel-bord
 title: Pas de stockage brut ; JPEG logiciel à bord
 created: 2026-10-05T08:20:36Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/mote-codec/**
   - core/mote-core/**
 constraint: |
   Les images retenues sont encodées en JPEG logiciel (libjpeg-turbo) dans le core. RAW_RGBA est réservé aux sessions de référence en enregistrement local. Pas d'encodage vidéo matériel en v1.
+ratified: 89094a2fb579
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:49Z
 schema: 4
-version: 1
+version: 2
 ---
 
 - **Contexte** : le brut RGBA dépasse 1 Gbit/s en configuration nominale (6.2). Les exports de SRC-2 prennent plusieurs minutes. `[SOURCE]`
