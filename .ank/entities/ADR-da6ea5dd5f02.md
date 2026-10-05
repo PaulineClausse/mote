@@ -5,13 +5,17 @@ slug: python-et-pytorch-pour-l-entra-nement
 title: Python et PyTorch pour l'entraînement
 created: 2026-10-05T08:20:38Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - pc/mote/train/**
 constraint: |
   L'entraînement s'appuie sur nerfstudio splatfacto (hors ligne) et gsplat (boucle incrémentale). Pas de dépendance au code 3DGS d'origine Inria.
+ratified: 132644f93543
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:51Z
 schema: 4
-version: 1
+version: 2
 ---
 
 - **Contexte** : les bibliothèques d'entraînement 3DGS (gsplat, nerfstudio) sont en PyTorch et CUDA. `[CONNU]`
