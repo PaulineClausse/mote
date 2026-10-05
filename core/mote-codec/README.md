@@ -1,0 +1,3 @@
+# mote-codec
+
+Encodage JPEG.
