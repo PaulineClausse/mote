@@ -5,13 +5,17 @@ slug: protocole-de-transport-rattrapage-et-s-curit-du
 title: Protocole de transport, rattrapage et sécurité du flux
 created: 2026-10-05T08:20:42Z
 author: seanl@sean-laptop
-status: proposed
+status: accepted
 scope:
   - core/mote-net/**
   - pc/mote/ingest/**
 references: [ADR-c36f30450585, ADR-d5f319e603c8]
+ratified: 05a6f41ae541
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-05T08:24:58Z
 schema: 4
-version: 1
+version: 2
 ---
 
 Détaille ADR-006 (transport) et ADR-012 (source de vérité). Les messages cités sont définis dans la spec du modèle de données.
