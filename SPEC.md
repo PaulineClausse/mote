@@ -73,6 +73,8 @@ Une règle n'est écrite qu'à un seul endroit. Les sections 6 à 11, 13 et 15.1
 
 ### 0.6 Journal des modifications
 
+**SP-1 reporté (2026-10-05)**, résultats de `docs/spikes/SP-1.md` (TASK-ab76) : en 4.3, écarts corrigés (permissions `CAMERA`/`HEADSET_CAMERA`, Camera2 v74 contre v76, descripteur de profondeur Unity contre OpenXR, « aucune API CPU » retaggé `[A VERIFIER]`, `USE_SCENE` et décalage pose/instant de la carte de profondeur ajoutés) et versions de MRUK lues (207.0.0, 83.0.4) ; en 14.1, SP-1 marqué fait ; en 17, réponses partielles pour Q-11 et Q-13.
+
 **0.4 (2026-10-05)** : découpage dans ank. Les ADR, les exigences, l'architecture, le modèle de données, l'API C, le pipeline PC, le protocole d'évaluation et un nouveau protocole de transport deviennent des entités ank ; spikes et work packages deviennent des tâches. Ce document est allégé en conséquence.
 
 **0.3 (2026-10-05)**, confrontation à la documentation officielle Meta (SP-1 en grande partie réalisé, détail en 4.3) :
@@ -214,14 +216,14 @@ Toutes les URLs ci-dessous ont été consultées pendant la préparation de ce d
 
 ### 4.3 Documentation officielle Meta
 
-Pages consultées le 2026-10-05 (SP-1). Tout ce qui suit est tagué `[DOC]` sauf mention contraire.
+Pages consultées le 2026-10-05 (SP-1). Tout ce qui suit est tagué `[DOC]` sauf mention contraire. Les chiffres ont ensuite été relus sur les pages d'origine et le code C# de MRUK a été lu : détail, écarts et numéros de ligne dans `docs/spikes/SP-1.md` (sections 3 et 4). Versions de MRUK lues : 207.0.0 (version courante du registre) et 83.0.4 (version de la page de référence `reference/mruk/v83`). `[SOURCE]`
 
 **Caméras passthrough (Passthrough Camera API, PCA)**
-- Disponible sur Quest 3 et Quest 3S, à partir de Horizon OS v74. Construite sur l'API Android Camera2. Le passthrough doit être activé dans l'application.
+- Disponible sur Quest 3 et Quest 3S, à partir de Horizon OS v74. Construite sur l'API Android Camera2. Le passthrough doit être activé dans l'application. **Écart entre pages** : la page Spatial SDK dit Camera2 disponible dès v74, la page native Android dit « v76+ » ; non tranché (SP-1.md 3.3). `[A VERIFIER]`
 - Deux caméras RGB frontales (gauche, droite). Format interne YUV420, cadence 60 Hz, latence de capture annoncée de 20 à 40 ms.
 - Résolutions : 1280x960 au maximum jusqu'à v81 ; 1280x1280 (et d'autres formats intermédiaires) à partir de v83.
 - Coût annoncé : environ 1 à 2 % de GPU par caméra diffusée, environ 45 Mo de mémoire.
-- Permission `horizonos.permission.HEADSET_CAMERA`. Non supportée dans le XR Simulator.
+- Permission `horizonos.permission.HEADSET_CAMERA` (seule requise côté Unity/MRUK ; la page de migration demande de retirer `android.permission.CAMERA`). **Écart entre pages** : la page Spatial SDK accepte `android.permission.CAMERA` ou `HEADSET_CAMERA` (`CAMERA` donne aussi accès à la caméra d'avatar), la page native Android exige les deux (SP-1.md 3.1, ligne 8). Non supportée dans le XR Simulator (casque physique ou Meta Horizon Link v2.1+ requis).
 - Les images sont classées « Device User Data » par la politique d'usage des données de Meta (voir 18.2).
 
 **Composant MRUK `PassthroughCameraAccess`** (MRUK v81 ou plus récent)
@@ -232,25 +234,27 @@ Pages consultées le 2026-10-05 (SP-1). Tout ce qui suit est tagué `[DOC]` sauf
 - `MaxFramerate` réglable (60 par défaut, la cadence réelle peut varier), `RequestedResolution`, `GetSupportedResolutions()`.
 
 **Accès Camera2 natif**
-- Permissions `android.permission.CAMERA` et `horizonos.permission.HEADSET_CAMERA`, `minSdk` 34. Clés constructeur `com.meta.extra_metadata.position` (0 gauche, 1 droite) et `com.meta.extra_metadata.camera_source` (0 pour le passthrough).
+- Permissions `android.permission.CAMERA` et `horizonos.permission.HEADSET_CAMERA` (page native Android ; voir l'écart avec les autres pages plus haut), `minSdk` 34. Camera2 « disponible sur Horizon OS v76+ » selon cette page (voir l'écart v74/v76 plus haut). Clés constructeur `com.meta.extra_metadata.position` (0 gauche, 1 droite) et `com.meta.extra_metadata.camera_source` (0 pour le passthrough).
 - La configuration expose la position et la rotation de l'objectif par rapport au centre du casque, mais la page indique que les exemples de calcul de pose « suivront ». Cela conforte le report de cette voie en v2 (NG-07).
 
 **Profondeur d'environnement (Depth API, extension `XR_META_environment_depth`)**
 - Supportée sur Quest 3 et Quest 3S (page Unity « Depth API overview »). La page Unity « XR.Oculus », plus ancienne, dit « Quest 3 uniquement ». Le passthrough est requis.
-- Cartes de profondeur par œil, livrées dans une swapchain lisible, donc en texture GPU ; côté Unity, une `RenderTexture` utilisable en rendu ou en compute shader. Aucune API CPU.
+- Cartes de profondeur par œil, livrées dans une swapchain lisible, donc en texture GPU ; côté Unity, une `RenderTexture` utilisable en rendu ou en compute shader. Aucune API CPU : **déduit** de l'absence d'une fonction CPU dans les pages, jamais énoncé (SP-1.md 3.4, ligne 24). `[A VERIFIER]`
 - Résolution à interroger à l'exécution (`xrGetEnvironmentDepthSwapchainStateMETA`) ; ni résolution ni cadence ne sont documentées.
-- Descripteur par œil : pose de création, FOV, `nearZ`, `farZ`, instant de création (`createTime`), `minDepth`, `maxDepth`. La pose est exprimée dans l'espace de référence demandé par l'application.
+- Descripteur par œil, **deux API distinctes** (SP-1.md 3.4, ligne 26). OpenXR (`XrEnvironmentDepthImageMETA`) : pose, FOV par vue, `nearZ`, `farZ`, `swapchainIndex`. Unity (`EnvironmentDepthFrameDesc`) : `isValid`, instant de création (`createTime`), `predictedDisplayTime`, `swapchainIndex`, pose, FOV, `nearZ`, `farZ`, `minDepth`, `maxDepth`. `createTime`, `minDepth` et `maxDepth` n'existent que côté Unity. La pose est exprimée dans l'espace de référence demandé par l'application.
+- Permission `com.oculus.permission.USE_SCENE` pour la profondeur ; côté Unity, `SetupEnvironmentDepth` la demande automatiquement (SP-1.md 3.5).
+- **Décalage pose/instant** : l'instant d'affichage et la pose de la carte acquise ne sont probablement pas ceux de la frame de l'application ; il faut reprojeter avec la pose et le FOV fournis. Une acquisition par frame, entre `xrBeginFrame` et `xrEndFrame` ; un seul fournisseur de profondeur par application (SP-1.md 3.5).
 - `nearZ` et `farZ` sont les plans d'une projection OpenGL et servent à convertir les valeurs en distances métriques. `farZ` peut être infini ; la doc donne alors le quadrant bas-droit de la matrice de projection : `[[-1, -2*nearZ], [-1, 0]]`.
 - Portée minimale fiable : environ 0,2 m. Suppression des mains optionnelle, selon l'appareil. Un surcoût existe dès que la profondeur est activée, même sans lecture.
 
 **Non documenté dans les pages lues** (reste `[A VERIFIER]`, par test) :
-- base de temps exacte du `Timestamp` MRUK et instant visé dans l'exposition ;
+- base de temps exacte du `Timestamp` MRUK et instant visé dans l'exposition (réponse partielle par lecture du code, voir Q-11) ;
 - type d'obturateur, synchronisation matérielle gauche/droite ;
 - distorsion résiduelle des images (la doc ne dit pas qu'elles sont rectifiées) ;
 - exposition et ISO par image ;
 - format et normalisation des valeurs de profondeur, résolution, cadence ;
 - différences de qualité de profondeur entre Quest 3 et 3S ;
-- requête de la pose du casque à un instant passé depuis Unity ; comportement au recentrage.
+- requête de la pose du casque à un instant passé depuis Unity ; comportement au recentrage (réponse partielle par lecture du code, voir Q-13).
 
 Complément de source secondaire (UploadVR, non officiel) : la profondeur est calculée par disparité entre les deux caméras de tracking, à faible résolution, utilisable jusqu'à 4 ou 5 m environ ; le Quest 3S n'a pas le projecteur de profondeur du Quest 3 mais deux illuminateurs infrarouges. `[SOURCE]`
 
@@ -367,7 +371,7 @@ SP-0 conditionne tout le reste : s'il invalide H-01, le projet est à repenser a
 | ID | Question | Moyen | Critère de sortie |
 |---|---|---|---|
 | SP-0 | H-01 : les poses du casque suffisent-elles ? | Capture avec SRC-1 non modifié, export avec SRC-3, entraînement splatfacto (option A), REF sur la même capture | Splat A et métriques, erreur de tracking chiffrée, seuils de SC-01 et SC-02 calibrés, décision de poursuite |
-| SP-1 | Que dit la documentation officielle Meta ? (4.3) | Lecture. **Fait le 2026-10-05** à travers un outil de résumé ; reste à relire les pages d'origine pour les chiffres, et le code C# de MRUK pour la base de temps (Q-11) et la requête de pose (Q-13) | Q-01 tranchée ; Q-02, Q-03, Q-11 à Q-13 converties en tests (SP-2, SP-3) |
+| SP-1 | Que dit la documentation officielle Meta ? (4.3) | Lecture. **Fait le 2026-10-05** : première lecture à travers un outil de résumé, puis relecture des pages d'origine et du code C# de MRUK (207.0.0 et 83.0.4) pour la base de temps (Q-11) et la requête de pose (Q-13) ; résultats dans `docs/spikes/SP-1.md`, reportés en 4.3 et en section 17 | Q-01 tranchée ; Q-02, Q-03, Q-11 à Q-13 converties en tests (SP-2, SP-3) |
 | SP-2 | Précision de la synchronisation image/pose, conventions de repère, synchronisation gauche/droite | Capture SRC-1 avec cible connue et mouvement contrôlé, script de reprojection | NFR-01 mesurée, formule de conversion validée (test 9.4), H-04, H-09 et H-10 tranchées |
 | SP-3 | Qualité de la profondeur sur Quest 3S, linéarisation, coût de la relecture GPU | Dump de profondeur et rétroprojection visualisée | H-02 tranchée, formule confirmée, coût mesuré |
 | SP-4 | Le core tourne-t-il sur le casque ? | `.so` Rust minimal chargé par Unity : encodage JPEG d'une paire, écriture MCAP | Temps d'encodage et charge CPU mesurés (H-05), crate MCAP validée sur Android (ADR-004), budget NFR-05 fixé |
@@ -481,9 +485,9 @@ Spikes et work packages sont des tâches ank, avec leur périmètre, leur critè
 - **Q-07** Faut-il viser une v1.5 avec retour du splat ou de sa couverture vers le casque ? (décision produit)
 - **Q-08** Matériel PC cible (GPU, VRAM) pour le live ? (inventaire)
 - **Q-09** Contraintes de distribution : usage interne ou publication ? (décision produit, impact sur les licences)
-- **Q-11** Quelle horloge se cache derrière le `DateTime` du `Timestamp` MRUK, et à quel instant de l'exposition se réfère-t-il ? Non documenté. (lecture du code C# de MRUK, SP-2)
+- **Q-11** Quelle horloge se cache derrière le `DateTime` du `Timestamp` MRUK, et à quel instant de l'exposition se réfère-t-il ? Non documenté. **Réponse partielle (SP-1, code MRUK 207.0.0 et 83.0.4, SP-1.md 1)** `[SOURCE]` : le `Timestamp` est une horloge temps réel (microsecondes depuis l'epoch Unix, résolution 1 µs) ; le natif rend en plus un horodatage monotone en nanosecondes, base XrTime, privé, qui sert à calculer la pose. Reste indéterminé par lecture : l'instant visé dans l'exposition, le décalage entre les deux horloges, la cohérence avec `SENSOR_TIMESTAMP` de Camera2. À mesurer en SP-2.
 - **Q-12** Obturateur rolling ou global sur les caméras passthrough ? Les deux caméras sont-elles synchronisées matériellement ? Non documenté. (SP-2)
-- **Q-13** Peut-on interroger la pose du casque à un instant passé donné depuis Unity, pour remplacer l'interpolation par une requête exacte ? Rien trouvé dans la doc publique ; MRUK le fait en interne pour `GetCameraPose()`. (lecture du code C# de MRUK)
+- **Q-13** Peut-on interroger la pose du casque à un instant passé donné depuis Unity, pour remplacer l'interpolation par une requête exacte ? Rien trouvé dans la doc publique ; MRUK le fait en interne pour `GetCameraPose()`. **Réponse partielle (SP-1, SP-1.md 2)** `[SOURCE]` : `GetCameraPose()` est déjà une requête exacte à l'instant de l'image, sans interpolation ; la requête à instant arbitraire existe dans le SDK Core (`OVRPlugin.GetNodePoseStateAtTime`, 83.0.4, renvoie l'identité en cas d'échec) mais MRUK ne l'expose pas (`GetHeadsetPoseAtTime` interne, XrTime privé). Reste indéterminé par lecture : profondeur d'historique, comportement au recentrage, correspondance entre le `Timestamp` public et le temps XrTime. À tester en SP-2.
 - **Q-14** Quelle différence de qualité de profondeur entre Quest 3 et 3S ? Non documenté par Meta. (SP-3, idéalement sur les deux casques)
 
 Questions closes : Q-01 (caméras passthrough et profondeur sont supportées sur Quest 3S `[DOC]`), Q-04 (chemin zéro-copie vers MediaCodec, sans objet depuis ADR-003), Q-05 (reformulée en Q-11), Q-10 (intégrée à SP-4).
