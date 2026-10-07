@@ -25,10 +25,25 @@ def pair_key(name: str) -> str:
     return re.sub(r"(left|right)[_\-]?", "", Path(name).stem, flags=re.I)
 
 
-def split(names, block=5, period=40, offset=None):
+def pairs_csv_keys(path: Path) -> dict:
+    """Clé de paire lue dans mruk_stereo_pairs.csv (SRC-1) : les horodatages gauche et droite d'une
+    même paire peuvent différer de quelques µs, l'appariement par nom les sépare alors."""
+    import csv
+    keys = {}
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            k = f"{int(row['pair_index']):08d}"
+            keys[f"left_{row['left_timestamp_us_realtime']}".lower()] = k
+            keys[f"right_{row['right_timestamp_us_realtime']}".lower()] = k
+    return keys
+
+
+def split(names, block=5, period=40, offset=None, keys_by_stem=None):
     groups = {}
     for n in names:
-        groups.setdefault(pair_key(n), []).append(n)
+        stem = Path(n).stem.lower()
+        k = keys_by_stem[stem] if keys_by_stem is not None else pair_key(n)
+        groups.setdefault(k, []).append(n)
     keys = sorted(groups)
     off = period // 2 if offset is None else offset      # évite de commencer par un bloc de test
     test_keys = {k for i, k in enumerate(keys) if (i - off) % period < block and i >= off}
@@ -43,11 +58,18 @@ def main(argv=None):
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--block", type=int, default=5)
     ap.add_argument("--period", type=int, default=40)
+    ap.add_argument("--pairs", type=Path, default=None,
+                    help="mruk_stereo_pairs.csv de la session : apparie gauche et droite par pair_index")
     a = ap.parse_args(argv)
     names = sorted(p.relative_to(a.images).as_posix() for p in a.images.rglob("*") if p.suffix.lower() in EXTS)
     if not names:
         raise SystemExit(f"aucune image dans {a.images}")
-    train, test, keys, test_keys = split(names, a.block, a.period)
+    keys_by_stem = pairs_csv_keys(a.pairs) if a.pairs else None
+    if keys_by_stem is not None:
+        missing = [n for n in names if Path(n).stem.lower() not in keys_by_stem]
+        if missing:
+            raise SystemExit(f"{len(missing)} image(s) absentes de {a.pairs}, par exemple {missing[0]}")
+    train, test, keys, test_keys = split(names, a.block, a.period, keys_by_stem=keys_by_stem)
     a.out_dir.mkdir(parents=True, exist_ok=True)
     (a.out_dir / "train_list.txt").write_text("\n".join(train) + "\n")
     (a.out_dir / "test_list.txt").write_text("\n".join(test) + "\n")
