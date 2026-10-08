@@ -163,6 +163,10 @@ il serait plus court. Mesures brutes : `docs/spikes/sp0/results/S0/timings.json`
 Pour comparaison, l'export SRC-3 avec les poses du casque (option A, sans SfM) a pris 33 s pour les 808 images de S0
 (100 fois moins) et 86 s pour les 1 178 images de S1 (96 fois moins). Le temps du SfM croît plus vite que le nombre d'images
 (N² paires en `exhaustive`).
+Les deux temps sont continus, sans mise en veille de la machine : `pmset -g log` ne montre aucun Sleep entre 11 h et 14 h 32,
+et le journal COLMAP ne reste jamais silencieux plus de 29 s pendant l'appariement. Les deux silences du `mapper` S1 (243 s
+et 373 s) suivent « Retriangulation and Global bundle adjustment », c'est du calcul. Le MacBook Air n'a pas de
+ventilateur : un ralentissement thermique sur 2 h 18 reste possible et n'est pas mesuré.
 
 ## 8. Seuils proposés pour SC-01 et SC-02
 
