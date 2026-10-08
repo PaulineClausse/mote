@@ -74,10 +74,10 @@ def run_logged(cmd: list, log: Path, timings: Path | None = None, label: str | N
         code = p.wait()
     wall = time.perf_counter() - t0
     if timings and label:
-        rows = json.loads(timings.read_text()) if timings.exists() else []
+        rows = json.loads(timings.read_text(encoding="utf-8")) if timings.exists() else []
         rows.append({"label": label, "argv": cmd, "wall_s": round(wall, 2), "exit_code": code,
                      "start": start, "host": platform.node()})
-        timings.write_text(json.dumps(rows, indent=1))
+        timings.write_text(json.dumps(rows, indent=1), encoding="utf-8")
     say(f"{label or Path(cmd[0]).name} : {wall:.1f} s, code {code}")
     if code != 0:
         raise StepError(f"{label or cmd[0]} a échoué (code {code}), journal : {log}")
@@ -105,6 +105,13 @@ def download(url: str, dest: Path) -> None:
                 say(f"  {done / 1e6:.0f} / {total / 1e6:.0f} Mo")
                 last = time.time()
     tmp.replace(dest)
+
+
+def keep_awake() -> None:
+    """Pas de mise en veille de Windows tant que ce processus tourne : les temps mesurés restent continus."""
+    if platform.system() == "Windows" and not DRY:
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)   # CONTINUOUS | SYSTEM_REQUIRED
 
 
 # ----------------------------------------------------------------- outils
@@ -284,7 +291,7 @@ class Session:
     def mark(self, step: str) -> None:
         if not DRY:
             (self.dir / ".steps").mkdir(parents=True, exist_ok=True)
-            (self.dir / ".steps" / step).write_text(datetime.datetime.now().isoformat(timespec="seconds"))
+            (self.dir / ".steps" / step).write_text(datetime.datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
 
     def step(self, step: str, fn) -> None:
         if self.done(step):
@@ -346,7 +353,7 @@ def process(s: Session, a, colmap: Colmap | None, mq3drecon: str | None, env: di
             say(f"{s.name} : appariement interrompu, extraction et appariement refaits pour un temps complet")
             extract()
         if not DRY:
-            started.write_text("")
+            started.write_text("", encoding="utf-8")
         flag = f"--{colmap.gpu_match if colmap else 'FeatureMatching.use_gpu'}"
         if a.matcher == "exhaustive":
             cmd = cm + ["exhaustive_matcher", "--database_path", db, flag, gpu]
@@ -404,9 +411,8 @@ def main(argv=None) -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")       # accents dans un journal ou un tube
     a.data, a.work, a.tools = a.data.resolve(), a.work.resolve(), a.tools.resolve()
-    if platform.system() == "Windows" and not DRY:
-        import ctypes                                   # pas de mise en veille pendant le calcul (temps SC-03)
-        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)   # CONTINUOUS | SYSTEM_REQUIRED
+    os.environ["PYTHONUTF8"] = "1"                      # mq3drecon (tqdm) dans un tube sous Windows
+    keep_awake()
     sys.path.insert(0, str(HERE))
 
     if not a.data.is_dir():
@@ -445,7 +451,7 @@ def main(argv=None) -> int:
             say(f"ÉCHEC {n} : {e}")
             failed.append(n)
     if not DRY:
-        (a.work / "summary_all.json").write_text(json.dumps(results, indent=1, ensure_ascii=False))
+        (a.work / "summary_all.json").write_text(json.dumps(results, indent=1, ensure_ascii=False), encoding="utf-8")
         import post_ref
         print(post_ref.table(results))
         say(f"résumé : {a.work / 'summary_all.json'}")
