@@ -94,3 +94,36 @@ python tools\metrics.py --pred eval\A_seed0\test\rgb --gt eval\A_seed0\test\gt-r
 
 Tout le dossier `eval\` (JSON de métriques et de temps) et les `runs\*\splatfacto\*\config.yml`. Un ou deux rendus PNG
 peuvent servir d'illustration. Les splats (`.ckpt`) ne vont pas dans le dépôt.
+
+## Annexe : refaire le SfM REF sur ce PC (optionnel)
+
+Le REF de S1 a été calculé sur un Mac sans GPU, en 138 min. Le refaire ici, avec le GPU, donne le temps de SC-03 sur une
+machine CUDA. Ce sont les mêmes commandes que sur le Mac. Il faut COLMAP **avec CUDA** (binaire Windows « cuda » de la
+release GitHub colmap/colmap), et le kit doit contenir `tools\align_sim3.py` et `data\est_txt\`.
+
+```powershell
+colmap -h | Select -First 1                     # doit afficher "with CUDA"
+# 1. Une caméra par œil : séparer les images en deux dossiers (copie, environ 2 Go)
+mkdir images_by_eye\left, images_by_eye\right -Force | Out-Null
+Copy-Item data\images\LEFT_*.png  images_by_eye\left\
+Copy-Item data\images\RIGHT_*.png images_by_eye\right\
+# 2. SfM complet chronométré (PROTOCOL.md §6)
+mkdir ref\sparse -Force | Out-Null ; $T = "ref\timings.json"
+python tools\run_timed.py --log $T --label colmap_feature_extractor -- colmap feature_extractor `
+  --database_path ref\database.db --image_path images_by_eye `
+  --ImageReader.camera_model OPENCV --ImageReader.single_camera_per_folder 1 --FeatureExtraction.use_gpu 1
+python tools\run_timed.py --log $T --label colmap_matcher -- colmap exhaustive_matcher `
+  --database_path ref\database.db --FeatureMatching.use_gpu 1
+python tools\run_timed.py --log $T --label colmap_mapper -- colmap mapper `
+  --database_path ref\database.db --image_path images_by_eye --output_path ref\sparse
+# 3. Modèle en texte : prendre le dossier ref\sparse\N qui a le plus d'images
+colmap model_converter --input_path ref\sparse\0 --output_path ref\sparse\0 --output_type TXT
+Select-String "^# Number of images" ref\sparse\*\images.txt
+# 4. Comparaison avec le casque : lancer une fois pour lire "scale", puis en mètres avec 1/scale
+python tools\align_sim3.py --est data\est_txt\images.txt --ref ref\sparse\0\images.txt
+python tools\align_sim3.py --est data\est_txt\images.txt --ref ref\sparse\0\images.txt --ref-scale-m <1/scale> --out eval\align_m.json
+```
+- Avant COLMAP 3.11, les options s'appellent `--SiftExtraction.use_gpu` et `--SiftMatching.use_gpu` : lancer
+  `colmap feature_extractor -h` pour voir lesquelles existent.
+- Rapporter `ref\timings.json`, `eval\align_m.json`, la ligne `colmap -h` et le nom du GPU. Le temps ne se compare à celui
+  du Mac qu'en le disant : autre machine, GPU.
