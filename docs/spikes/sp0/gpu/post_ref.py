@@ -29,7 +29,7 @@ MIN_REGISTERED = 0.90                                            # PROTOCOL.md �
 
 def image_records(images_txt: Path) -> list[tuple[str, str]]:
     """(ligne de pose, ligne de points 2D) par image, commentaires retirés, lecture par parité comme align_sim3."""
-    lines = [l for l in images_txt.read_text().splitlines() if not l.startswith("#")]
+    lines = [l for l in images_txt.read_text(encoding="utf-8").splitlines() if not l.startswith("#")]
     while lines and not lines[-1].strip() and len(lines) % 2:
         lines.pop()
     recs = []
@@ -51,17 +51,17 @@ def pick_model(sparse: Path) -> tuple[Path, int, dict]:
 def write_flat(model: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     for f in ("cameras.txt", "points3D.txt"):
-        (dest / f).write_text((model / f).read_text())
+        (dest / f).write_text((model / f).read_text(encoding="utf-8"), encoding="utf-8")
     out = ["# Image list with two lines of data per image: noms sans dossier (ref_flat, post_ref.py)"]
     for head, pts in image_records(model / "images.txt"):
         f = head.split()
         f[9] = Path(f[9]).name
         out += [" ".join(f[:10]), pts]
-    (dest / "images.txt").write_text("\n".join(out) + "\n")
+    (dest / "images.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 def sfm_seconds(timings: Path) -> dict:
-    rows = json.loads(timings.read_text()) if timings.exists() else []
+    rows = json.loads(timings.read_text(encoding="utf-8")) if timings.exists() else []
     last = {r["label"]: r for r in rows if r["exit_code"] == 0}          # dernier passage réussi par étape
     steps = {k: last[k]["wall_s"] for k in SFM_LABELS if k in last}
     out = {"steps_s": steps}
@@ -121,14 +121,14 @@ def summarize(sdir: Path, est_txt: Path, sparse: Path, timings: Path, extra: dic
         except SystemExit as e:                     # moins de 3 images communes (un seul œil exporté...)
             out["align"][which] = {"error": str(e)}
             continue
-        (sdir / "eval" / f"align_{which}.json").write_text(json.dumps(res, indent=2))
+        (sdir / "eval" / f"align_{which}.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
         out["align"][which] = {
             "n_common": res["n_poses"], "scale": res["scale"], "m_per_ref_unit": res["m_per_ref_unit"],
             "translation_error_m": res["translation_error_m"], "rotation_error_deg": res["rotation_error_deg"],
             **({"drift_rmse_by_third_m": res["drift"]["translation_rmse_by_third_m"],
                 "drift_ratio_last_first": res["drift"]["ratio_last_first"]} if "drift" in res else {}),
         }
-    (sdir / "summary.json").write_text(json.dumps(out, indent=1, ensure_ascii=False))
+    (sdir / "summary.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
     return out
 
 

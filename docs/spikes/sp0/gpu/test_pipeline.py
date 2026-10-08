@@ -40,9 +40,9 @@ def write_images_txt(path: Path, poses: dict, prefix_by_eye=False):
         t = -r_wc @ c2w[:3, 3]
         n = f"{'left' if name.startswith('LEFT') else 'right'}/{name}" if prefix_by_eye else name
         lines += [" ".join(map(str, [i, *rot_to_quat(r_wc), *t, 1 if name.startswith("LEFT") else 2, n])), ""]
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     for f in ("cameras.txt", "points3D.txt"):
-        (path.parent / f).write_text("# vide\n")
+        (path.parent / f).write_text("# vide\n", encoding="utf-8")
 
 
 def trajectory(n=60, seed=0):
@@ -81,7 +81,7 @@ def make_session(root: Path, scale=4.8, noise_m=0.004):
             {"label": "colmap_matcher", "wall_s": 120.0, "exit_code": 0},
             {"label": "colmap_mapper", "wall_s": 999.0, "exit_code": 1},
             {"label": "colmap_mapper", "wall_s": 90.0, "exit_code": 0}]
-    (root / "timings.json").write_text(json.dumps(rows))
+    (root / "timings.json").write_text(json.dumps(rows), encoding="utf-8")
     return est, ref
 
 
@@ -105,8 +105,8 @@ def test_summary():
         assert r["sfm_time"]["total_s"] == 240.0, r["sfm_time"]
         flat = align_sim3.read_poses(s / "ref_flat" / "sparse" / "0" / "images.txt")
         assert set(flat) == set(ref)
-        assert "left/" not in (s / "ref_flat" / "sparse" / "0" / "images.txt").read_text()
-        assert json.loads((s / "summary.json").read_text())["session"] == "S9"
+        assert "left/" not in (s / "ref_flat" / "sparse" / "0" / "images.txt").read_text(encoding="utf-8")
+        assert json.loads((s / "summary.json").read_text(encoding="utf-8"))["session"] == "S9"
         assert "S9" in post_ref.table([r])
 
 
@@ -114,7 +114,7 @@ def test_discover_and_links():
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "a" / "20261007_101500").mkdir(parents=True)
-        (d / "a" / "20261007_101500" / "hmd_poses.csv").write_text("x")
+        (d / "a" / "20261007_101500" / "hmd_poses.csv").write_text("x", encoding="utf-8")
         ex = d / "kit" / "data"
         (ex / "distorted" / "sparse" / "0").mkdir(parents=True)
         (ex / "distorted" / "sparse" / "0" / "images.bin").write_bytes(b"")
@@ -132,7 +132,7 @@ def test_dry_run():
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "in" / "20261008_090000").mkdir(parents=True)
-        (d / "in" / "20261008_090000" / "hmd_poses.csv").write_text("x")
+        (d / "in" / "20261008_090000" / "hmd_poses.csv").write_text("x", encoding="utf-8")
         p = subprocess.run([sys.executable, str(HERE / "pipeline.py"), "--data", str(d / "in"),
                             "--work", str(d / "out"), "--tools", str(d / "tools"), "--dry-run"],
                            capture_output=True, text=True, encoding="utf-8")
@@ -154,7 +154,7 @@ if a == ["-h"]:
 elif a[:2] == ["feature_extractor", "-h"]:
     print("  --FeatureExtraction.use_gpu arg (=1)")
 elif a[0] == "feature_extractor":
-    opt("--database_path").write_text("db")
+    opt("--database_path").write_text("db", encoding="utf-8")
 elif a[0] == "exhaustive_matcher":
     flag = Path(os.environ["FAKE_FAIL_ONCE"])
     if flag.exists():
@@ -185,15 +185,15 @@ def test_full_run_with_fake_colmap():
         (kit / "images").mkdir()
         for n in est:
             (kit / "images" / n).write_bytes(b"png")
-        (d / "fake_colmap.py").write_text(FAKE_COLMAP)
+        (d / "fake_colmap.py").write_text(FAKE_COLMAP, encoding="utf-8")
         if os.name == "nt":
             exe = d / "colmap.cmd"
-            exe.write_text(f'@"{sys.executable}" "{d / "fake_colmap.py"}" %*\n')
+            exe.write_text(f'@"{sys.executable}" "{d / "fake_colmap.py"}" %*\n', encoding="utf-8")
         else:
             exe = d / "colmap"
-            exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{d / "fake_colmap.py"}" "$@"\n')
+            exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{d / "fake_colmap.py"}" "$@"\n', encoding="utf-8")
             exe.chmod(0o755)
-        (d / "fail_once").write_text("")
+        (d / "fail_once").write_text("", encoding="utf-8")
         env = dict(os.environ, COLMAP=str(exe), FAKE_REF=str(fix / "ref" / "sparse"),
                    FAKE_EST=str(fix / "est_txt"), FAKE_FAIL_ONCE=str(d / "fail_once"))
         cmd = [sys.executable, str(HERE / "pipeline.py"), "--data", str(d / "in"), "--work", str(d / "out"),
@@ -206,16 +206,16 @@ def test_full_run_with_fake_colmap():
         out = p2.stdout + p2.stderr
         assert p2.returncode == 0, out
         assert "appariement interrompu" in out and "S9" in out, out
-        rows = json.loads((d / "out" / "S9" / "timings.json").read_text())
+        rows = json.loads((d / "out" / "S9" / "timings.json").read_text(encoding="utf-8"))
         assert [r["label"] for r in rows].count("colmap_feature_extractor") == 2, rows
         assert all("--FeatureExtraction.use_gpu" in r["argv"] and r["argv"][-1] == "1"
                    for r in rows if r["label"] == "colmap_feature_extractor")
-        summ = json.loads((d / "out" / "S9" / "summary.json").read_text())
+        summ = json.loads((d / "out" / "S9" / "summary.json").read_text(encoding="utf-8"))
         assert summ["ref_model"] == "1" and summ["sift_gpu"] and summ["kind"] == "export"
         assert set(summ["sfm_time"]["steps_s"]) == {"colmap_feature_extractor", "colmap_matcher", "colmap_mapper"}
         assert abs(summ["align"]["all"]["scale"] - 4.8) < 0.05
         assert len(list((d / "out" / "S9" / "ref" / "images_by_eye" / "left").iterdir())) == 60
-        assert json.loads((d / "out" / "summary_all.json").read_text())[0]["session"] == "S9"
+        assert json.loads((d / "out" / "summary_all.json").read_text(encoding="utf-8"))[0]["session"] == "S9"
         p3 = run()                                                    # tout est fait : rien ne se relance
         assert p3.returncode == 0 and "colmap_mapper :" not in p3.stdout, p3.stdout
 
