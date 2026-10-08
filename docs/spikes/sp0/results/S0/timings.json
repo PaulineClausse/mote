@@ -1,0 +1,55 @@
+[
+ {
+  "label": "colmap_feature_extractor",
+  "argv": [
+   "colmap",
+   "feature_extractor",
+   "--database_path",
+   "ref/database.db",
+   "--image_path",
+   "images_by_eye",
+   "--ImageReader.camera_model",
+   "OPENCV",
+   "--ImageReader.single_camera_per_folder",
+   "1",
+   "--FeatureExtraction.use_gpu",
+   "0"
+  ],
+  "wall_s": 142.17,
+  "exit_code": 0,
+  "start": "2026-10-07T08:59:53+00:00",
+  "host": "MacBook-Air-de-Clausse.local"
+ },
+ {
+  "label": "colmap_matcher",
+  "argv": [
+   "colmap",
+   "exhaustive_matcher",
+   "--database_path",
+   "ref/database.db",
+   "--FeatureMatching.use_gpu",
+   "0"
+  ],
+  "wall_s": 2491.95,
+  "exit_code": 0,
+  "start": "2026-10-07T09:02:15+00:00",
+  "host": "MacBook-Air-de-Clausse.local"
+ },
+ {
+  "label": "colmap_mapper",
+  "argv": [
+   "colmap",
+   "mapper",
+   "--database_path",
+   "ref/database.db",
+   "--image_path",
+   "images_by_eye",
+   "--output_path",
+   "ref/sparse"
+  ],
+  "wall_s": 656.37,
+  "exit_code": 0,
+  "start": "2026-10-07T09:43:47+00:00",
+  "host": "MacBook-Air-de-Clausse.local"
+ }
+]
