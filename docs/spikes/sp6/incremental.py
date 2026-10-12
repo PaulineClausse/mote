@@ -47,6 +47,26 @@ def viewmat(v: st.View) -> np.ndarray:
     return m
 
 
+def make_ssim_fast(torch, F, device, size: int = 11, sigma: float = 1.5):
+    """SSIM gaussien 11x11, sigma 1,5, K1 = 0,01, K2 = 0,03, bords « valid » : la définition de torchmetrics
+    (qui filtre en 2D puis rogne les bords), calculée avec deux filtres 1D."""
+    x = torch.arange(size, dtype=torch.float32, device=device) - (size - 1) / 2
+    g = torch.exp(-x ** 2 / (2 * sigma ** 2)); g = g / g.sum()
+    gh, gv = g.view(1, 1, 1, size), g.view(1, 1, size, 1)
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+
+    def ssim(a, b):                                     # [B, C, H, W], valeurs dans [0, 1]
+        B, C = a.shape[:2]
+        z = torch.cat([a, b, a * a, b * b, a * b], 1)   # [B, 5C, H, W]
+        z = F.conv2d(z, gh.expand(5 * C, 1, 1, size), groups=5 * C)
+        z = F.conv2d(z, gv.expand(5 * C, 1, size, 1), groups=5 * C)
+        ma, mb, saa, sbb, sab = z.split(C, 1)
+        saa, sbb, sab = saa - ma * ma, sbb - mb * mb, sab - ma * mb
+        s = ((2 * ma * mb + c1) * (2 * sab + c2)) / ((ma * ma + mb * mb + c1) * (saa + sbb + c2))
+        return s.mean()
+    return ssim
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--nsdata", type=Path, required=True)
@@ -72,6 +92,12 @@ def main(argv=None) -> int:
     ap.add_argument("--device", default="cuda", help="cuda ; cpu seulement pour le test de la boucle")
     ap.add_argument("--reset-every", type=int, default=3000,
                     help="remise des opacités de gsplat (3000 par défaut) ; 0 = jamais, pour voir si elle gêne l'aperçu")
+    ap.add_argument("--ssim", choices=("torchmetrics", "fast", "off"), default="torchmetrics",
+                    help="SSIM de la perte : torchmetrics (filtre 2D), fast (filtre séparable, même définition), "
+                         "off (L1 seule)")
+    ap.add_argument("--images-on-gpu", action="store_true", help="garder les images en uint8 sur le GPU")
+    ap.add_argument("--profile", type=int, default=0,
+                    help="N > 0 : chronomètre chaque partie de l'itération (avec synchronisation) sur N itérations")
     a = ap.parse_args(argv)
 
     import torch
@@ -81,6 +107,8 @@ def main(argv=None) -> int:
     from gsplat.strategy.ops import _update_param_with_optimizer
     from torchmetrics.functional.image import structural_similarity_index_measure as ssim_fn
 
+    if a.ssim == "fast":
+        ssim_fn = make_ssim_fast(torch, F, a.device)  # noqa: F811
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
     dev = a.device
@@ -109,6 +137,9 @@ def main(argv=None) -> int:
     t_load = time.perf_counter()
     imgs_tr = [load(v) for v in s.train]
     imgs_te = [load(v) for v in s.test]
+    if a.images_on_gpu:
+        imgs_tr = [im.to(dev) for im in imgs_tr]
+        imgs_te = [im.to(dev) for im in imgs_te]
     print(f"[sp6] images chargées en {time.perf_counter() - t_load:.0f} s (hors chrono)", flush=True)
     H, W = imgs_tr[0].shape[:2]
     Ks_tr = torch.stack([K_of(v) for v in s.train]).to(dev)
@@ -152,7 +183,7 @@ def main(argv=None) -> int:
         n = a.seed_per_view
         img = imgs_tr[i]
         u = torch.randint(0, W, (n,)); v = torch.randint(0, H, (n,))
-        rgb = img[v, u].float().to(dev) / 255.0
+        rgb = img[v.to(img.device), u.to(img.device)].float().to(dev) / 255.0
         K = Ks_tr[i]
         d = torch.empty(n, device=dev).uniform_(*a.depth_range)
         x = (u.to(dev).float() + 0.5 - K[0, 2]) / K[0, 0] * d
@@ -197,6 +228,8 @@ def main(argv=None) -> int:
 
     # ---------------------------------------------------------------- boucle
     curve, step, seeded, train_s = [], 0, 0, 0.0
+    timing: dict[str, float] = {}
+    tp = 0.0
     next_eval = a.eval_every_s
     end_s = s.duration_s + a.tail_s
     sync()
@@ -241,6 +274,17 @@ def main(argv=None) -> int:
             now = time.perf_counter(); train_s += now - t_last; t_last = now
             continue
 
+        prof = a.profile and step < a.profile
+        if prof:
+            sync(); tp = time.perf_counter()
+
+        def lap(name):
+            nonlocal tp
+            if prof:
+                sync(); now_ = time.perf_counter()
+                timing[name] = timing.get(name, 0.0) + now_ - tp
+                tp = now_
+
         vm = vm_tr[i:i + 1]
         if pose_opt is not None:
             d = pose_delta[i]
@@ -248,19 +292,36 @@ def main(argv=None) -> int:
             T[:3, :3] = rot6d(d[3:] + ident6)
             T[:3, 3] = d[:3]
             vm = torch.linalg.inv(c2w_tr[i] @ T)[None]
-        out, alphas, info = render(vm, Ks_tr[i:i + 1], sh_deg)
+        lap("pose")
         gt = imgs_tr[i].to(dev, non_blocking=True).float()[None] / 255.0
+        lap("image")
+        out, alphas, info = render(vm, Ks_tr[i:i + 1], sh_deg)
         strategy.step_pre_backward(splats, optimizers, sstate, step, info)
+        lap("rendu")
         l1 = (out - gt).abs().mean()
-        ssim = ssim_fn(out.permute(0, 3, 1, 2), gt.permute(0, 3, 1, 2), data_range=1.0)
-        loss = 0.8 * l1 + 0.2 * (1 - ssim)
+        if a.ssim == "off":
+            loss = l1
+        elif a.ssim == "fast":
+            loss = 0.8 * l1 + 0.2 * (1 - ssim_fn(out.permute(0, 3, 1, 2), gt.permute(0, 3, 1, 2)))
+        else:
+            ssim = ssim_fn(out.permute(0, 3, 1, 2), gt.permute(0, 3, 1, 2), data_range=1.0)
+            loss = 0.8 * l1 + 0.2 * (1 - ssim)
+        lap("perte")
         loss.backward()
+        lap("retropropagation")
         for opt in optimizers.values():
             opt.step(); opt.zero_grad(set_to_none=True)
         if pose_opt is not None:
             pose_opt.step(); pose_opt.zero_grad(set_to_none=True)
+        lap("optimiseurs")
         strategy.step_post_backward(splats, optimizers, sstate, step, info, packed=False)
+        lap("densification")
         step += 1
+        if a.profile and step == a.profile:
+            tot = sum(timing.values())
+            print("[sp6] profil sur %d itérations : %s ; %.1f ms/it" % (
+                step, ", ".join(f"{k} {1000 * v / step:.1f} ms" for k, v in timing.items()), 1000 * tot / step),
+                flush=True)
         if not a.offline:
             now = time.perf_counter(); train_s += now - t_last; t_last = now
 
@@ -275,6 +336,7 @@ def main(argv=None) -> int:
         "t20_s": hit["stream_s"] if hit else None, "t20_step": hit["step"] if hit else None,
         "psnr_end_of_stream": None if a.offline else next(
             (c["psnr"] for c in curve if c["stream_s"] >= s.duration_s and c["psnr"] is not None), None),
+        "profile_ms": {k: round(1000 * v / max(min(step, a.profile), 1), 2) for k, v in timing.items()},
         "psnr_final": last["psnr"], "n_gauss_final": last["n_gauss"], "curve": curve,
     }
     a.out.parent.mkdir(parents=True, exist_ok=True)

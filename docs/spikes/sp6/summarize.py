@@ -22,6 +22,8 @@ def key_of(r: dict) -> str:
     k += f" 1/{a['downscale']}" if a["downscale"] > 1 else ""
     k += "" if a["pose_opt"] else " sans pose"
     k += "" if a["reset_every"] == 3000 else f" reset {a['reset_every'] or 'jamais'}"
+    k += "" if a.get("ssim", "torchmetrics") == "torchmetrics" else f" ssim {a['ssim']}"
+    k += " img GPU" if a.get("images_on_gpu") else ""
     return k
 
 
