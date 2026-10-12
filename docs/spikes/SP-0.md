@@ -1,22 +1,29 @@
 # SP-0 : H-01, les poses du casque suffisent-elles ?
 
-Statut : brouillon. Règle fixée ; erreur de suivi et temps du SfM mesurés sur S0 (essai) et S1 ; bench splat A / A sur poses REF fait sur le PC NVIDIA le 2026-10-12 (moyennes ci-dessous, valeurs par graine à reporter) · Date : 2026-10-07 · Auteur : claude-agent@mote-session · Tâche : TASK-e447
+Statut : brouillon. Règle fixée ; erreur de suivi et temps du SfM mesurés sur S0 (essai) et S1 ; bench splat A / A sur poses REF fait sur le PC NVIDIA le 2026-10-12 ; décision prise le 2026-10-12 · Date : 2026-10-07 · Auteur : claude-agent@mote-session · Tâche : TASK-e447
 
 Protocole : `docs/spikes/sp0/PROTOCOL.md`. Versions : `docs/spikes/sp0/VERSIONS.md`. Les cases `___` se remplissent
 pendant et après la capture.
 
 ## 1. Décision (à remplir en dernier, règle fixée en §2 avant les mesures)
 
-**Décision sur H-01 : POURSUITE** ~~/ ARRÊT~~, **conditionnelle** (proposée, à valider par l'équipe).
+**Décision sur H-01 : POURSUITE** ~~/ ARRÊT~~, **conditionnelle** (validée par l'équipe le 2026-10-12).
 Règle appliquée (§2) : S1, session du protocole. Translation médiane 0,0097 m (≤ 0,05), rotation médiane 0,32° (≤ 1,5),
 dérive 0,79 (≤ 2) : sous les seuils de poursuite. Écart de PSNR A - REF : -1,40 dB, entre -1 et -3 : ni poursuite ni
 arrêt, donc poursuite conditionnelle.
 Justification : S1 donne A 25,40 ± 0,14 dB contre 26,81 ± 0,08 dB sur poses REF (3 graines, écart stable). S0, essai
 hors protocole, donne -0,28 dB. Le suivi du casque est au centimètre et ne dérive pas ; la perte vient de ce que
 le raffinement SO3xR3 de l'entraînement ne rattrape pas.
-Conséquence : on poursuit M0, avec un raffinement de pose systématique ; le recalage hors ligne (options C et D,
-WP-17) devient prioritaire. Deux réserves à lever, §9 : poses de test non raffinées, et AREF avec intrinsèques et
-distorsion du REF.
+Conséquence : on poursuit M0. La condition de la règle porte sur la qualité finale, pas sur l'aperçu :
+- **Live (aperçu, NFR-04, SC-01)** : entraînement incrémental sur les poses du casque, sans SfM, avec le raffinement
+  SO3xR3 de l'entraînement. Le bench le permet : 20 dB atteints au plus tard en 42 s sur une RTX 3070, contre 138 min
+  pour le seul SfM de REF. Les 1,4 dB perdus n'y comptent pas.
+- **Final (SC-02)** : entraînement complet après la capture, avec recalage des poses ; les options C et D (WP-17)
+  deviennent prioritaires pour cette passe au lieu d'être un simple comparatif.
+- Le risque principal se déplace vers l'entraînement incrémental (RISK-09, Q-06) : à dérisquer par un spike dédié
+  sur les sessions de SP-0, avant M4 (SP-6).
+Deux réserves sur l'écart de 1,4 dB restent ouvertes, §9 : poses de test non raffinées (WP-13 le mesurera), et AREF
+avec intrinsèques et distorsion du REF.
 
 ## 2. Règle de décision, écrite avant de regarder les chiffres
 
@@ -215,6 +222,6 @@ Les seuils actuels sont des `[HYPOTHESE]` (SPEC 2.3). Méthode de calcul : PROTO
 
 ## 10. Suites
 
-- Tâches à créer ou à débloquer : ___
+- Tâches à créer ou à débloquer : SP-6, entraînement incrémental sur les sessions de SP-0 (latence d'aperçu fine, rejeu en temps réel, initialisation par la profondeur du casque) ; SP-0 débloque SP-2, SP-3, SP-4, SP-5 et WP-01.
 - Questions ouvertes remontées à SP-1 / SP-2 (base de temps, repères) : ___
 - Données conservées (hors dépôt) et où : ___ ; JSON de mesures versés dans le dépôt : ___
