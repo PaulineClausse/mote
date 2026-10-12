@@ -1,16 +1,22 @@
 # SP-0 : H-01, les poses du casque suffisent-elles ?
 
-Statut : brouillon. Règle fixée ; erreur de suivi et temps du SfM mesurés sur S0 (essai) et S1 ; splat A en attente du PC NVIDIA (kit et GPU_RUN.md prêts) · Date : 2026-10-07 · Auteur : claude-agent@mote-session · Tâche : TASK-e447
+Statut : brouillon. Règle fixée ; erreur de suivi et temps du SfM mesurés sur S0 (essai) et S1 ; bench splat A / A sur poses REF fait sur le PC NVIDIA le 2026-10-12 (moyennes ci-dessous, valeurs par graine à reporter) · Date : 2026-10-07 · Auteur : claude-agent@mote-session · Tâche : TASK-e447
 
 Protocole : `docs/spikes/sp0/PROTOCOL.md`. Versions : `docs/spikes/sp0/VERSIONS.md`. Les cases `___` se remplissent
 pendant et après la capture.
 
 ## 1. Décision (à remplir en dernier, règle fixée en §2 avant les mesures)
 
-**Décision sur H-01 : POURSUITE / ARRÊT** (barrer l'un).
-Règle appliquée (§2) : ___
-Justification en trois lignes au plus, chiffres à l'appui : ___
-Conséquence : ___ (par exemple : on poursuit M0 ; ou : H-01 invalidée, ce qui change : ___)
+**Décision sur H-01 : POURSUITE** ~~/ ARRÊT~~, **conditionnelle** (proposée, à valider par l'équipe).
+Règle appliquée (§2) : S1, session du protocole. Translation médiane 0,0097 m (≤ 0,05), rotation médiane 0,32° (≤ 1,5),
+dérive 0,79 (≤ 2) : sous les seuils de poursuite. Écart de PSNR A - REF : -1,40 dB, entre -1 et -3 : ni poursuite ni
+arrêt, donc poursuite conditionnelle.
+Justification : S1 donne A 25,40 ± 0,14 dB contre 26,81 ± 0,08 dB sur poses REF (3 graines, écart stable). S0, essai
+hors protocole, donne -0,28 dB. Le suivi du casque est au centimètre et ne dérive pas ; la perte vient de ce que
+le raffinement SO3xR3 de l'entraînement ne rattrape pas.
+Conséquence : on poursuit M0, avec un raffinement de pose systématique ; le recalage hors ligne (options C et D,
+WP-17) devient prioritaire. Deux réserves à lever, §9 : poses de test non raffinées, et AREF avec intrinsèques et
+distorsion du REF.
 
 ## 2. Règle de décision, écrite avant de regarder les chiffres
 
@@ -58,7 +64,7 @@ Date et heure de fixation de la règle : 2026-10-05, avant toute capture (avant 
 
 Export et REF (MacBook Air, Apple M5, 24 Go) : Python 3.11.15 (venv uv) · SRC-3 commit `97d15f7` · COLMAP 4.2.1 Homebrew
 **sans GPU** · numpy 2.4.6 · adb 1.0.41.
-Entraînement : CUDA ___ · PyTorch ___ · nerfstudio ___ · gsplat ___ · LPIPS ___ (réseau ___)
+Entraînement : CUDA 11.8 · PyTorch 2.1.2 · nerfstudio 1.1.5 · gsplat 1.4.0 (roue précompilée pt21cu118) · LPIPS 0.1.4 (réseau VGG)
 Machine d'entraînement : GPU ___, VRAM ___ Go, CPU ___, RAM ___ Go.
 
 Points `[A VERIFIER]` du protocole tranchés :
@@ -80,11 +86,19 @@ Points `[A VERIFIER]` du protocole tranchés :
   70 % des paires MRUK portent exactement le même horodatage.
 - Prise en compte de `train_list.txt` / `test_list.txt` par nerfstudio (nombre train/eval observé) : ___
 - Prise en compte de `recording_config.json` par SRC-1 : ___
-- Poses de test raffinées (SPEC 13.1 point 5) : fait / non fait, raison : ___
+- Poses de test raffinées (SPEC 13.1 point 5) : **non fait**. nerfstudio 1.1.5 évalue les vues de test avec leurs poses
+  d'origine, alors que les poses d'entraînement sont corrigées par SO3xR3. Cela pénalise A plus qu'AREF.
+- **Écart au kit GPU** : le premier bench, du 2026-10-12, mesurait sur les rendus de `ns-render dataset`, qui ne
+  correspondent à aucune vue du hold-out en nerfstudio 1.1.5 (environ 9 dB, contre environ 25 dB pour `ns-eval` sur les
+  mêmes modèles). Les métriques viennent désormais des rendus de `ns-eval` (`train.py`, étape `eval2_*`), sans
+  réentraînement.
 
 ## 5. Splat option A (splatfacto, poses du casque, initialisation aléatoire)
 
 Configuration : `--max-num-iterations` 30000, camera optimizer `SO3xR3`, initialisation aléatoire (`--load-3D-points False`).
+Sessions du bench : `20261007_094643` = S0, `20261007_120820` = S1 (mêmes horodatages d'images que §6). Le bench GPU
+a refait son propre jeu commun et son hold-out (`train.py`, `nsdata\holdout.json`) : 70 vues de test sur S1, et non les
+130 décrites ci-dessous.
 Hold-out S1 : 65 paires sur 534 (12,2 %, blocs de 5 toutes les 40), soit 938 images d'entraînement et 130 de test. Les
 534 paires sont celles que REF recale des deux côtés, pour que A et « A sur poses REF » voient exactement les mêmes
 images. Commandes : `docs/spikes/sp0/GPU_RUN.md`.
@@ -94,17 +108,20 @@ images. Commandes : `docs/spikes/sp0/GPU_RUN.md`.
 | S1 | 0 | ___ | ___ | ___ | ___ |
 | S1 | 1 | ___ | ___ | ___ | ___ |
 | S1 | 2 | ___ | ___ | ___ | ___ |
-| S1 | **moyenne ± écart-type** | ___ ± ___ | ___ ± ___ | ___ ± ___ | ___ |
+| S1 | **moyenne ± écart-type** | 25,40 ± 0,14 | 0,9031 ± 0,0020 | 0,4100 ± 0,0025 | 24,5 min |
+| S0 (essai) | moyenne ± écart-type | 25,58 ± 0,09 | 0,8960 ± 0,0016 | 0,3986 ± 0,0017 | 24,7 min |
 | S2 | (idem, si capturée) | | | | |
 
-Métriques sans raffinement des poses de test (indiquées comme telles) : ___ ; avec raffinement : ___ ou non disponible.
-Temps jusqu'au premier aperçu à ≥ 20 dB (SC-01) : ___ s (itération ___).
+Métriques sans raffinement des poses de test (indiquées comme telles) : ci-dessus ; avec raffinement : non disponible.
+Temps jusqu'au premier aperçu à ≥ 20 dB (SC-01) : 42 ± 2 s sur S1, 43 ± 1 s sur S0 (itération ___), mesuré à la
+première évaluation du hold-out, toutes les 2 000 itérations : c'est une borne haute.
 
 Comparaison de contrôle, A sur poses REF (mêmes images, mêmes listes, mêmes graines) :
 
 | Scène | PSNR (dB) | SSIM | LPIPS | Écart de PSNR A - REF (dB) |
 |---|---|---|---|---|
-| S1 | ___ | ___ | ___ | ___ |
+| S1 | 26,81 ± 0,08 | 0,9272 ± 0,0018 | 0,3890 ± 0,0005 | **-1,40** |
+| S0 (essai) | 25,86 ± 0,22 | 0,9068 ± 0,0008 | 0,3836 ± 0,0016 | -0,28 |
 
 ## 6. Erreur de suivi du casque contre un SfM COLMAP complet (Sim(3))
 
@@ -174,14 +191,21 @@ Les seuils actuels sont des `[HYPOTHESE]` (SPEC 2.3). Méthode de calcul : PROTO
 
 | Critère | Valeur actuelle (SPEC) | Valeur proposée | Mesures qui la fondent |
 |---|---|---|---|
-| SC-01 : PSNR d'aperçu sur vues couvertes | ≥ 20 dB | ___ dB | PSNR final de A ___ dB, courbe PSNR(temps) ___ |
-| SC-01 : délai d'aperçu (NFR-04) | ___ | ___ s | temps pour atteindre le seuil : ___ s |
-| SC-02 : gain de la meilleure option sur A | ≥ 1 dB | ___ dB | σ de A entre graines = ___ dB, règle `max(1 dB, 2σ)` |
-| SC-03 : dénominateur (SfM complet) | un ordre de grandeur | ___ s | §7 |
+| SC-01 : PSNR d'aperçu sur vues couvertes | ≥ 20 dB | 20 dB | PSNR final de A 25,40 dB sur S1, min(20, 25,4 - 3) = 20 ; 20 dB atteints en 42 s |
+| SC-01 : délai d'aperçu (NFR-04) | ___ | 45 s | temps pour atteindre le seuil : 42 ± 2 s (S1), borne haute |
+| SC-02 : gain de la meilleure option sur A | ≥ 1 dB | 1 dB | σ de A entre graines = 0,14 dB (S1), règle `max(1 dB, 2σ)` |
+| SC-03 : dénominateur (SfM complet) | un ordre de grandeur | 8 284 s | §7, S1 sur CPU |
 
 ## 9. Lecture et limites
 
-- Ce que les mesures disent de H-01 : ___
+- Ce que les mesures disent de H-01 : les poses du casque sont au centimètre et sans dérive. Elles donnent un splat
+  à 25,4 dB, 1,4 dB sous les poses COLMAP sur S1, et 0,3 dB dessous sur S0. Elles suffisent pour un aperçu, pas pour la
+  meilleure qualité sans raffinement.
+- Réserves sur l'écart de 1,4 dB, à lever avant de figer la décision :
+  1. Les poses de test ne sont pas raffinées (§4). Une partie de la perte de A peut venir de l'évaluation elle-même.
+  2. AREF n'a pas seulement d'autres poses. Il a aussi les intrinsèques du REF (f = 870,31 px contre 868,68 px) et une
+     distorsion OPENCV, que nerfstudio corrige en rééchantillonnant les images. Un contrôle « poses REF, intrinsèques
+     du casque » séparerait les deux effets.
 - Ce qu'elles ne disent pas (nombre de scènes, une seule pièce, une seule date, un seul casque, REF lui-même incertain) : ___
 - Risques confirmés ou levés : RISK-05 (MRUK sur 3S) ___ ; RISK-08 (versions) ___ ; RISK-12 (crash à la fermeture) ___
 - Incidents du protocole et corrections à reporter dans `docs/spikes/sp0/PROTOCOL.md` : ___
