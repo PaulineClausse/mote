@@ -101,8 +101,12 @@ Il vérifie que torch voit le GPU, puis, pour chaque session qui a un REF :
    (`--load-3D-points False`), graines 0, 1 et 2, pour les deux variantes :
    - **A** : poses du casque (`nsdata\headset\sparse\0`), l'option A de SPEC 11.3 ;
    - **AREF** : poses du REF COLMAP (`nsdata\ref\sparse\0`), le contrôle « A sur poses REF ».
-3. **Rendu** du hold-out en **PNG** (`ns-render` écrit du JPEG par défaut, ce qui fausserait le PSNR), puis
-   `metrics.py` (PSNR, SSIM, LPIPS VGG) entre rendu et `gt-rgb`, et `ns-eval` pour recouper.
+3. **Rendu** du hold-out par `ns-eval --render-output-path`, qui sauve chaque vue en PNG, vérité terrain et rendu
+   côte à côte, coupées ensuite en `gt\` et `pred\`. Puis `metrics.py` (PSNR, SSIM, LPIPS VGG) sur ces paires ; le PSNR
+   de `ns-eval` sert à recouper. **Pas `ns-render dataset`** : en nerfstudio 1.1.5, ses rendus ne correspondent à
+   aucune vue du hold-out (S1 : environ 9 dB, contre environ 25 dB pour `ns-eval` sur le même modèle). Un premier
+   bench, le 2026-10-12, a été faussé ainsi ; l'étape s'appelle désormais `eval2_*` pour que la relance refasse
+   seulement les évaluations, sans réentraîner.
 4. **Courbe PSNR(temps)** : le hold-out entier est évalué toutes les 2 000 itérations (`--steps-per-eval-all-images`).
    On en tire le temps et l'itération où le PSNR dépasse 20 dB (SC-01). Ces évaluations s'ajoutent au temps
    d'entraînement, à dire dans SP-0.md.
