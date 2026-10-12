@@ -46,9 +46,13 @@ if ($Fast) {
     Run "profile_fast" (@("--offline", "--max-steps", "300", "--eval-every-it", "300", "--profile", "300") + $f) $prof
     foreach ($seed in $Seeds) {
         if (-not $SkipOffline) { Run "offline_fast_s$seed" (@("--offline", "--max-steps", "$OfflineSteps", "--eval-every-it", "200", "--seed", "$seed") + $f) }
-        foreach ($st in $Strategies) { Run "${st}_fast_s$seed" (@("--strategy", $st, "--seed", "$seed") + $f) }
+        # window est écartée par le premier passage (elle oublie les zones anciennes)
+        foreach ($st in @("uniform", "recent")) { Run "${st}_fast_s$seed" (@("--strategy", $st, "--seed", "$seed") + $f) }
+        # la recommandation du premier passage : tirage uniforme en demi-résolution
+        Run "uniform_half_fast_s$seed" (@("--strategy", "uniform", "--downscale", "2", "--seed", "$seed") + $f)
     }
     & $Python "$here\summarize.py" --runs $Out
+    & $Python "$here\curves.py" --runs $Out
     exit $LASTEXITCODE
 }
 
@@ -63,4 +67,5 @@ foreach ($seed in $Seeds) {
 }
 
 & $Python "$here\summarize.py" --runs $Out
+& $Python "$here\curves.py" --runs $Out
 exit $LASTEXITCODE

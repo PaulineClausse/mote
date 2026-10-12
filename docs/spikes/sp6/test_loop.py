@@ -111,6 +111,8 @@ def main() -> int:
         summ = json.loads((Path(d) / "summary.json").read_text(encoding="utf-8"))
         assert set(summ["configs"]) == {"hors ligne", "uniform", "recent", "window sans pose"}, summ["configs"].keys()
         assert summ["configs"]["hors ligne"]["it_per_s"]["n"] == 1
+        import curves
+        assert curves.main(["--runs", d, "--step-s", "0.25"]) == 0
     print("test_loop : ok")
     return 0
 
