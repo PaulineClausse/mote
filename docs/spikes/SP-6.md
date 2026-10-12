@@ -1,16 +1,24 @@
 # SP-6 : entraînement 3DGS incrémental quasi temps réel sur les poses du casque
 
-Statut : brouillon. Méthode et règle fixées avant les mesures ; kit prêt (`docs/spikes/sp6/`), mesures en attente du
-PC NVIDIA · Date : 2026-10-12 · Auteur : claude-agent@mote-session · Tâche : TASK-45ec
+Statut : brouillon. Méthode et règle fixées avant les mesures ; premier passage mesuré le 2026-10-12 sur RTX 3070 ;
+courbes PSNR(temps) et version rapide (`-Fast`) à reporter · Date : 2026-10-12 · Auteur : claude-agent@mote-session · Tâche : TASK-45ec
 
 Contexte : SP-0 a validé H-01 (ADR-0bbb) : l'aperçu live s'entraîne sur les poses du casque, sans SfM. Le risque se
 déplace vers l'entraînement incrémental : RISK-09 (il ne tient pas la cible live) et Q-06 (quelle stratégie).
 
 ## 1. Verdict (à remplir en dernier)
 
-Stratégie recommandée pour Q-06 : ___
-RISK-09 : **levé / confirmé** (barrer l'un). Meilleure configuration en flux : ___, 20 dB à ___ s après le début du flux.
-Conséquence pour WP-15 : ___
+Stratégie recommandée pour Q-06 : **tirage sur toutes les vues arrivées, en demi-résolution** pour le live. La règle
+(§2) désigne `recent` en demi-résolution ; mais en pleine résolution, `uniform` fait mieux que `recent` sur toute la
+ligne : ce n'est pas le biais vers les vues récentes qui aide, c'est la demi-résolution. `uniform` en demi-résolution
+reste à mesurer pour le confirmer. `window` est écartée : elle oublie les zones anciennes (11,2 dB à la fin).
+RISK-09 : **levé** ~~/ confirmé~~, avec une réserve. Meilleure configuration en flux : `recent` en demi-résolution,
+20 dB à 15,0 s après le début du flux (3 graines sur 3), pour une cible de 60 s.
+Réserve : 20 dB est atteint tôt, mais l'aperçu reste ensuite **au seuil, pas au-dessus** : 19,3 à 20,6 dB en fin de
+flux selon la configuration, sur les 70 vues couvertes. La marge doit venir de la vitesse (version rapide, §4.3) et
+de l'initialisation par la profondeur (SP-7).
+Conséquence pour WP-15 : boucle gsplat en demi-résolution, tirage uniforme sur les vues arrivées, pas de fenêtre
+glissante. Le critère de WP-15 (20 dB en 60 s) est tenu sur ce GPU, sans marge sur la qualité.
 
 ## 2. Règle, écrite avant de regarder les chiffres
 
@@ -46,26 +54,37 @@ boucle gsplat). Détails : `docs/spikes/sp6/README.md`.
 
 | Graine | 20 dB (s) | 20 dB (itération) | it/s | PSNR à 7 000 it. |
 |---|---|---|---|---|
-| 0 | ___ | ___ | ___ | ___ |
-| 1 | ___ | ___ | ___ | ___ |
-| 2 | ___ | ___ | ___ | ___ |
-| **moyenne ± écart-type** | ___ | ___ | ___ | ___ |
+| **moyenne ± écart-type** | 34,3 ± 19,0 | 333 ± 115 | 13,4 ± 0,6 | 23,15 ± 0,11 |
+
+Valeurs par graine : `$HOME\sp0\sp6\runs\offline_s*.json`. Le seuil tombe entre les itérations 200 et 400 selon la
+graine. Splatfacto (SP-0) l'atteignait à sa première évaluation, à l'itération 2 000 : ce n'était qu'une borne haute.
+L'entraîneur gsplat converge en moins d'itérations, mais n'en fait que 13 par seconde sur 765 000 gaussiennes, contre
+environ 20 pour splatfacto. À 7 000 itérations il est à 23,15 dB, contre 25,40 dB pour splatfacto à 30 000.
 
 ### 4.2 Rejeu en flux de S1 (122 s, puis 60 s)
 
 | Configuration | 20 dB après le début du flux (s) | it/s | PSNR fin du flux (dB) | PSNR final (dB) | Gaussiennes |
 |---|---|---|---|---|---|
-| `uniform` | ___ | ___ | ___ | ___ | ___ |
-| `recent` | ___ | ___ | ___ | ___ | ___ |
-| `window` | ___ | ___ | ___ | ___ | ___ |
-| `recent`, demi-résolution | ___ | ___ | ___ | ___ | ___ |
+| `uniform` | 16,7 ± 2,9 | 18,9 ± 0,9 | 20,08 ± 0,34 | **20,87 ± 0,14** | 355 000 |
+| `recent` | 15,0 ± 0,0 | 20,0 ± 0,8 | 19,29 ± 0,40 | 19,98 ± 0,27 | 362 000 |
+| `window` | 15,0 ± 0,0 | 22,6 ± 1,1 | 18,92 ± 0,18 | 11,24 ± 0,10 | 260 000 |
+| `recent`, demi-résolution | 15,0 ± 0,0 | **44,6 ± 1,9** | **20,62 ± 0,51** | 20,56 ± 0,53 | 837 000 |
 
-Courbes PSNR(temps de flux) : `$HOME\sp0\sp6\runs\*.json`, champ `curve`.
+Trois graines par ligne. L'évaluation a lieu toutes les 5 s de flux : 15,0 s veut dire entre 10 et 15 s. Le PSNR
+final est mesuré 60 s après la fin du flux, sur les 70 vues de validation.
+
+Courbes PSNR(temps de flux), moyenne des graines, toutes les 10 s (`curves.py`) : ___
+
+### 4.3 Version rapide (SSIM séparable, images sur GPU)
+
+Profil d'une itération et mêmes mesures : ___
 
 ## 5. Débit
 
-GPU : ___. Images absorbées par seconde (une itération = une image) : ___ en pleine résolution, ___ en
-demi-résolution, contre ~9,6 images par seconde produites par le casque (4,8 paires par seconde).
+GPU : NVIDIA GeForce RTX 3070, 8 Go. Images absorbées par seconde (une itération = une image) : 19 à 23 en pleine
+résolution selon la stratégie, 44,6 en demi-résolution, contre environ 9,6 images par seconde produites par le casque
+(4,8 paires par seconde). Chaque image est donc vue 2 fois en moyenne pendant le flux en pleine résolution, et
+4,6 fois en demi-résolution.
 
 ## 6. Lecture et limites
 

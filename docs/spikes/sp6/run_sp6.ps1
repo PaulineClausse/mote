@@ -15,7 +15,8 @@ param(
     [int]$OfflineSteps = 7000,
     [switch]$SkipOffline,
     [switch]$SkipDownscale,
-    [switch]$WithNoReset                  # en plus : la meilleure piste sans remise des opacités
+    [switch]$WithNoReset,                 # en plus : la meilleure piste sans remise des opacités
+    [switch]$Fast                         # seulement les runs « rapides » : profil, SSIM séparable, images sur GPU
 )
 $ErrorActionPreference = "Continue"
 function Say($m) { Write-Host "[sp6] $m" }
@@ -25,16 +26,35 @@ if (-not (Test-Path "$NsData\train_list.txt")) { Say "pas de jeu commun dans $Ns
 New-Item -ItemType Directory -Force $Out | Out-Null
 $env:PYTHONUTF8 = "1"
 
-function Run($name, [string[]]$extra) {
-    $json = "$Out\$name.json"
+function Run($name, [string[]]$extra, [string]$dir = $Out) {
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $json = "$dir\$name.json"
     if (Test-Path $json) { Say "$name deja fait"; return }
     Say "$name"
-    & $Python "$here\incremental.py" --nsdata $NsData --out $json @extra 2>&1 | Tee-Object -FilePath "$Out\$name.log"
-    if ($LASTEXITCODE -ne 0) { Say "ECHEC $name (code $LASTEXITCODE), voir $Out\$name.log"; Remove-Item -ErrorAction SilentlyContinue $json }
+    & $Python "$here\incremental.py" --nsdata $NsData --out $json @extra 2>&1 | Tee-Object -FilePath "$dir\$name.log"
+    if ($LASTEXITCODE -ne 0) { Say "ECHEC $name (code $LASTEXITCODE), voir $dir\$name.log"; Remove-Item -ErrorAction SilentlyContinue $json }
 }
 
 & $Python -c "import gsplat, torchmetrics, torch; assert torch.cuda.is_available()"
 if ($LASTEXITCODE -ne 0) { Say "le venv ne voit pas gsplat, torchmetrics ou le GPU"; exit 3 }
+
+if ($Fast) {
+    # profil d'une itération (300 itérations chronométrées partie par partie), puis les mêmes mesures en version rapide
+    $f = @("--ssim", "fast", "--images-on-gpu")
+    $prof = "$Out\..\profile"                  # à part : ces runs courts fausseraient le résumé hors ligne
+    Run "profile_torchmetrics" @("--offline", "--max-steps", "300", "--eval-every-it", "300", "--profile", "300") $prof
+    Run "profile_fast" (@("--offline", "--max-steps", "300", "--eval-every-it", "300", "--profile", "300") + $f) $prof
+    foreach ($seed in $Seeds) {
+        if (-not $SkipOffline) { Run "offline_fast_s$seed" (@("--offline", "--max-steps", "$OfflineSteps", "--eval-every-it", "200", "--seed", "$seed") + $f) }
+        # window est écartée par le premier passage (elle oublie les zones anciennes)
+        foreach ($st in @("uniform", "recent")) { Run "${st}_fast_s$seed" (@("--strategy", $st, "--seed", "$seed") + $f) }
+        # la recommandation du premier passage : tirage uniforme en demi-résolution
+        Run "uniform_half_fast_s$seed" (@("--strategy", "uniform", "--downscale", "2", "--seed", "$seed") + $f)
+    }
+    & $Python "$here\summarize.py" --runs $Out
+    & $Python "$here\curves.py" --runs $Out
+    exit $LASTEXITCODE
+}
 
 foreach ($seed in $Seeds) {
     # 1. latence d'aperçu pure : toutes les vues dès t = 0, évaluation toutes les 200 itérations
@@ -47,4 +67,5 @@ foreach ($seed in $Seeds) {
 }
 
 & $Python "$here\summarize.py" --runs $Out
+& $Python "$here\curves.py" --runs $Out
 exit $LASTEXITCODE

@@ -68,6 +68,16 @@ def run(args: list[str]) -> dict:
 
 def main() -> int:
     torch.set_num_threads(2)
+    import torch.nn.functional as F
+    from torchmetrics.functional.image import structural_similarity_index_measure as tm_ssim
+    import incremental
+    fast_ssim = incremental.make_ssim_fast(torch, F, "cpu")
+    g = torch.Generator().manual_seed(0)
+    x = torch.rand(1, 3, 64, 48, generator=g)
+    y = (x + 0.1 * torch.randn(1, 3, 64, 48, generator=g)).clamp(0, 1)
+    ref, got = float(tm_ssim(y, x, data_range=1.0)), float(fast_ssim(y, x))
+    assert abs(ref - got) < 1e-4, (ref, got)
+    print(f"ok SSIM séparable = torchmetrics ({got:.5f} contre {ref:.5f})")
     with tempfile.TemporaryDirectory() as d:
         nd = test_stream.session(Path(d), n_pairs=40, fps=20.0, test_every=8)
         write_images(nd)
@@ -90,11 +100,19 @@ def main() -> int:
             assert c[0]["n_train"] < 70, "tout est arrivé dès la première évaluation : le flux n'est pas rejoué"
             assert r["psnr_end_of_stream"] is not None and r["steps"] > 0
             print(f"ok flux {strat} :", r["steps"], "itérations,", len(c), "évaluations")
+        fast = run(common + ["--out", f"{d}/fast.json", "--offline", "--max-steps", "60", "--eval-every-it", "30",
+                             "--ssim", "fast", "--images-on-gpu", "--profile", "50"])
+        assert set(fast["profile_ms"]) == {"pose", "image", "rendu", "perte", "retropropagation", "optimiseurs",
+                                           "densification"}, fast["profile_ms"]
+        print("ok options rapides, profil :", fast["profile_ms"])
+        (Path(d) / "fast.json").unlink()
         import summarize
         assert summarize.main(["--runs", d]) == 0
         summ = json.loads((Path(d) / "summary.json").read_text(encoding="utf-8"))
         assert set(summ["configs"]) == {"hors ligne", "uniform", "recent", "window sans pose"}, summ["configs"].keys()
         assert summ["configs"]["hors ligne"]["it_per_s"]["n"] == 1
+        import curves
+        assert curves.main(["--runs", d, "--step-s", "0.25"]) == 0
     print("test_loop : ok")
     return 0
 

@@ -32,6 +32,24 @@ chutes toutes les 3 000 itérations.
 À la fin, `summarize.py` affiche un tableau par configuration et écrit `$HOME\sp0\sp6\runs\summary.json`. Copier ce
 tableau dans la conversation : il remplit SP-6.md.
 
+## Version rapide (`-Fast`)
+
+Le premier run montre environ 8 itérations par seconde sur la RTX 3070, contre plus de 20 pour splatfacto : en flux,
+cela laisse à peine 1 000 itérations pour les 466 vues de S1. Après le premier passage :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1 -Fast
+```
+
+1. **Profil** : 300 itérations chronométrées partie par partie (pose, image, rendu, perte, rétropropagation,
+   optimiseurs, densification), avec le SSIM de torchmetrics puis en version rapide. Résultats dans
+   `$HOME\sp0\sp6\profile`, ligne « profil » des logs et champ `profile_ms` des JSON.
+2. **Mêmes mesures en version rapide**, hors ligne et pour les trois stratégies : SSIM calculé par deux filtres 1D au
+   lieu d'un filtre 2D (même définition, écart inférieur à 1e-4 contre torchmetrics, vérifié par `test_loop.py`), et
+   images gardées sur le GPU en uint8 (environ 2,6 Go en pleine résolution pour S1).
+
+Le résumé met les deux versions côte à côte, avec la mention « ssim fast img GPU ».
+
 ## Ce que fait l'entraîneur (`incremental.py`)
 
 - **Horloge** : le temps d'entraînement écoulé, évaluations exclues. Une vue d'entraînement est disponible quand son
