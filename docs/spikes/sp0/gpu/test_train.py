@@ -109,13 +109,32 @@ def test_dry_run_commands():
         assert out.count("ns-train") == 4, out                          # 2 variantes x 2 graines
         for k in ("--colmap-path headset/sparse/0", "--colmap-path ref/sparse/0", "--load-3D-points False",
                   "--pipeline.model.camera-optimizer.mode SO3xR3", "--max-num-iterations 30000",
-                  "--machine.seed 1", "--image-format png", "--lpips-net vgg", "--vis tensorboard"):
+                  "--machine.seed 1", "--render-output-path", "--lpips-net vgg", "--vis tensorboard"):
             assert k in out, (k, out)
+        assert "ns-render" not in out, out
+
+
+def test_split_side_by_side():
+    try:
+        from PIL import Image
+    except ImportError:
+        print("test_split_side_by_side sauté : Pillow absent")
+        return
+    import numpy as np
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        (d / "src").mkdir()
+        gt = np.zeros((4, 6, 3), np.uint8); gt[..., 0] = 200
+        pred = np.zeros((4, 6, 3), np.uint8); pred[..., 2] = 100
+        Image.fromarray(np.concatenate([gt, pred], axis=1)).save(d / "src" / "eval_img_0003.png")
+        assert train.split_side_by_side(d / "src", d / "gt", d / "pred") == 1
+        assert (np.asarray(Image.open(d / "gt" / "0003.png")) == gt).all()
+        assert (np.asarray(Image.open(d / "pred" / "0003.png")) == pred).all()
 
 
 if __name__ == "__main__":
     tests = [test_pair_keys_by_timestamp, test_prepare_common_set, test_bench_rule, test_psnr_curve,
-             test_dry_run_commands]
+             test_dry_run_commands, test_split_side_by_side]
     for t in tests:
         t()
         print("ok", t.__name__)

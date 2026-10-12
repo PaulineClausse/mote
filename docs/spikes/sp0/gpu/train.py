@@ -13,8 +13,9 @@ Pour chaque session de --work qui a un REF (summary.json de post_ref.py), dans -
                  l'autre, et s'arrête s'il en manque une dès que train_list existe)
   2. entraînement  ns-train splatfacto, variantes A (poses du casque) et AREF (poses REF), mêmes images, mêmes
                  listes, mêmes graines, mêmes hyperparamètres : 30 000 itérations, SO3xR3, initialisation aléatoire
-  3. rendu       ns-render dataset du hold-out, en PNG (JPEG par défaut dans nerfstudio : fausserait le PSNR)
-  4. métriques   metrics.py (PSNR, SSIM, LPIPS VGG) entre rendu et gt-rgb ; ns-eval pour recouper ;
+  3. rendu       ns-eval --render-output-path : chaque vue du hold-out en PNG, vérité terrain | rendu côte à côte
+                 (pas ns-render dataset : en 1.1.5 ses rendus ne correspondent à aucune vue du hold-out)
+  4. métriques   metrics.py (PSNR, SSIM, LPIPS VGG) sur les deux moitiés ; PSNR de ns-eval pour recouper ;
                  courbe PSNR(temps) lue dans tensorboard, temps pour atteindre 20 dB (SC-01)
   5. bench.json  moyennes et écarts-types par variante, écart de PSNR A - AREF contre la règle de SP-0.md §2,
                  seuils proposés pour SC-01 et SC-02 (PROTOCOL.md §9)
@@ -200,6 +201,26 @@ def table(benches: list[dict]) -> str:
 
 # ----------------------------------------------------------------- orchestration
 
+def split_side_by_side(src: Path, gt_dir: Path, pred_dir: Path) -> int:
+    """Images de ns-eval --render-output-path (<préfixe>_img_<idx>.png, vérité terrain | rendu côte à côte,
+    splatfacto get_image_metrics_and_images) -> gt/<idx>.png et pred/<idx>.png."""
+    from PIL import Image
+    files = sorted(src.glob("*_img_*.png"))
+    if not files:
+        raise StepError(f"ns-eval n'a sauvé aucune image dans {src}")
+    gt_dir.mkdir(parents=True, exist_ok=True)
+    pred_dir.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        im = Image.open(f).convert("RGB")
+        w, h = im.size
+        if w % 2:
+            raise StepError(f"{f.name} : largeur impaire {w}, pas une paire vérité terrain | rendu")
+        idx = f.stem.rsplit("_", 1)[-1]
+        im.crop((0, 0, w // 2, h)).save(gt_dir / f"{idx}.png")
+        im.crop((w // 2, 0, w, h)).save(pred_dir / f"{idx}.png")
+    return len(files)
+
+
 def ns(tool: str) -> str:
     scripts = Path(sys.executable).parent
     for n in (f"{tool}.exe", tool):
@@ -228,17 +249,22 @@ def train_one(s: pipeline.Session, v: str, seed: int, a) -> dict:
     s.step(f"train_{v}_seed{seed}", train)
 
     def render():
+        # Pas de ns-render dataset : en nerfstudio 1.1.5, ses rendus ne correspondent à aucune image du hold-out
+        # (S1 : ~9 dB contre ~25 dB pour ns-eval sur le même modèle, PSNR max sur toutes les paires ~10,6 dB).
+        # ns-eval rend par le même chemin que l'évaluation de l'entraînement et sauve chaque vue en PNG,
+        # vérité terrain à gauche, rendu à droite : on coupe en deux et metrics.py mesure (LPIPS VGG).
         if ev.exists() and not pipeline.DRY:
             shutil.rmtree(ev)
-        run_logged([ns("ns-render"), "dataset", "--load-config", cfg, "--split", "test", "--output-path", ev,
-                    "--rendered-output-names", "rgb", "gt-rgb", "--image-format", "png"],
-                   s.logs / f"render_{v}_seed{seed}.log")
-        run_logged([sys.executable, HERE.parent / "metrics.py", "--pred", ev / "test" / "rgb",
-                    "--gt", ev / "test" / "gt-rgb", "--lpips-net", "vgg", "--out", ev / "metrics.json"],
-                   s.logs / f"metrics_{v}_seed{seed}.log")
-        run_logged([ns("ns-eval"), "--load-config", cfg, "--output-path", ev / "nseval.json"],
+        run_logged([ns("ns-eval"), "--load-config", cfg, "--output-path", ev / "nseval.json",
+                    "--render-output-path", ev / "nseval_img"],
                    s.logs / f"nseval_{v}_seed{seed}.log")
-    s.step(f"eval_{v}_seed{seed}", render)
+        if not pipeline.DRY:
+            n = split_side_by_side(ev / "nseval_img", ev / "gt", ev / "pred")
+            say(f"{s.name} : {v} seed{seed}, {n} vues du hold-out rendues par ns-eval")
+        run_logged([sys.executable, HERE.parent / "metrics.py", "--pred", ev / "pred",
+                    "--gt", ev / "gt", "--lpips-net", "vgg", "--out", ev / "metrics.json"],
+                   s.logs / f"metrics_{v}_seed{seed}.log")
+    s.step(f"eval2_{v}_seed{seed}", render)          # eval2 : refait les évaluations faites avec ns-render
 
     if pipeline.DRY:
         return {}
