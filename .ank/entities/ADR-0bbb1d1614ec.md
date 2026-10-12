@@ -5,13 +5,17 @@ slug: aper-u-live-sur-les-poses-du-casque-recalage-des
 title: Aperçu live sur les poses du casque, recalage des poses réservé à la passe finale
 created: 2026-10-12T08:54:42Z
 author: claude-agent@mote-session
-status: proposed
+status: accepted
 scope:
   - pc/mote/train/**
 constraint: |
   L'entraînement live n'attend ni SfM ni recalage global des poses : il s'entraîne sur les poses du casque, avec au plus un raffinement de pose par gradient pendant l'entraînement ; tout recalage des poses (options C, D, REF) n'a lieu que dans l'entraînement final.
+ratified: d495aacc9e8f
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-12T09:19:49Z
 schema: 4
-version: 1
+version: 2
 ---
 
 Contexte : SP-0 (docs/spikes/SP-0.md, 2026-10-12). Sur S1, les poses du casque sont au centimètre et sans dérive.
