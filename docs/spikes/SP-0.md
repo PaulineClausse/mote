@@ -65,7 +65,7 @@ Date et heure de fixation de la règle : 2026-10-05, avant toute capture (avant 
 Export et REF (MacBook Air, Apple M5, 24 Go) : Python 3.11.15 (venv uv) · SRC-3 commit `97d15f7` · COLMAP 4.2.1 Homebrew
 **sans GPU** · numpy 2.4.6 · adb 1.0.41.
 Entraînement : CUDA 11.8 · PyTorch 2.1.2 · nerfstudio 1.1.5 · gsplat 1.4.0 (roue précompilée pt21cu118) · LPIPS 0.1.4 (réseau VGG)
-Machine d'entraînement : GPU ___, VRAM ___ Go, CPU ___, RAM ___ Go.
+Machine d'entraînement : GPU NVIDIA GeForce RTX 3070, VRAM 8 Go, CPU ___, RAM ___ Go.
 
 Points `[A VERIFIER]` du protocole tranchés :
 - Arborescence de l'export SRC-3 : `images/` à plat, modèle binaire dans `distorted/sparse/0/`. `points3D` est vide sans
@@ -105,21 +105,24 @@ images. Commandes : `docs/spikes/sp0/GPU_RUN.md`.
 
 | Scène | Graine | PSNR (dB) | SSIM | LPIPS | Temps d'entraînement (s) |
 |---|---|---|---|---|---|
-| S1 | 0 | ___ | ___ | ___ | ___ |
-| S1 | 1 | ___ | ___ | ___ | ___ |
-| S1 | 2 | ___ | ___ | ___ | ___ |
-| S1 | **moyenne ± écart-type** | 25,40 ± 0,14 | 0,9031 ± 0,0020 | 0,4100 ± 0,0025 | 24,5 min |
-| S0 (essai) | moyenne ± écart-type | 25,58 ± 0,09 | 0,8960 ± 0,0016 | 0,3986 ± 0,0017 | 24,7 min |
+| S1 | 0 | 25,36 | 0,9007 | 0,4108 | 1 470 |
+| S1 | 1 | 25,56 | 0,9043 | 0,4071 | 1 473 |
+| S1 | 2 | 25,29 | 0,9043 | 0,4120 | 1 473 |
+| S1 | **moyenne ± écart-type** | 25,40 ± 0,14 | 0,9031 ± 0,0020 | 0,4100 ± 0,0025 | 1 472 (24,5 min) |
+| S0 (essai) | 0 / 1 / 2 | 25,48 / 25,64 / 25,61 | 0,8963 / 0,8974 / 0,8941 | 0,4004 / 0,3969 / 0,3983 | 1 490 / 1 488 / 1 461 |
+| S0 (essai) | moyenne ± écart-type | 25,58 ± 0,09 | 0,8960 ± 0,0016 | 0,3986 ± 0,0017 | 1 480 (24,7 min) |
 | S2 | (idem, si capturée) | | | | |
 
 Métriques sans raffinement des poses de test (indiquées comme telles) : ci-dessus ; avec raffinement : non disponible.
-Temps jusqu'au premier aperçu à ≥ 20 dB (SC-01) : 42 ± 2 s sur S1, 43 ± 1 s sur S0 (itération ___), mesuré à la
-première évaluation du hold-out, toutes les 2 000 itérations : c'est une borne haute.
+Temps jusqu'au premier aperçu à ≥ 20 dB (SC-01) : 42 ± 2 s sur S1, 43 ± 1 s sur S0 (itération 2 000 pour les 12
+entraînements). C'est la première évaluation du hold-out, faite toutes les 2 000 itérations : 20 dB est atteint au plus
+tard là, peut-être avant. C'est une borne haute.
 
 Comparaison de contrôle, A sur poses REF (mêmes images, mêmes listes, mêmes graines) :
 
 | Scène | PSNR (dB) | SSIM | LPIPS | Écart de PSNR A - REF (dB) |
 |---|---|---|---|---|
+| S1, graines 0 / 1 / 2 | 26,74 / 26,90 / 26,79 | 0,9259 / 0,9293 / 0,9264 | 0,3889 / 0,3885 / 0,3896 | -1,38 / -1,34 / -1,50 |
 | S1 | 26,81 ± 0,08 | 0,9272 ± 0,0018 | 0,3890 ± 0,0005 | **-1,40** |
 | S0 (essai) | 25,86 ± 0,22 | 0,9068 ± 0,0008 | 0,3836 ± 0,0016 | -0,28 |
 
