@@ -38,7 +38,7 @@ Le premier run montre environ 8 itérations par seconde sur la RTX 3070, contre 
 cela laisse à peine 1 000 itérations pour les 466 vues de S1. Après le premier passage :
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File docs\spikes\sp6un_sp6.ps1 -Fast
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1 -Fast
 ```
 
 1. **Profil** : 300 itérations chronométrées partie par partie (pose, image, rendu, perte, rétropropagation,
