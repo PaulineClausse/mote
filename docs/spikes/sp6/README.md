@@ -51,7 +51,8 @@ powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1 -Fast
 Le résumé met les deux versions côte à côte, avec la mention « ssim fast img GPU ».
 
 Mesuré le 2026-10-13 : sur la RTX 3070 (8 Go), la version rapide est **plus lente** (environ 25 % d'itérations par
-seconde en moins), sans doute à cause des 2,6 Go d'images gardés sur le GPU. Ne pas la retenir telle quelle.
+seconde en moins). Le profil montre que toutes les parties de l'itération ralentissent, rendu et rétropropagation
+compris : c'est la pression mémoire des 2,6 Go d'images gardées sur le GPU, pas le SSIM. Version non retenue.
 
 ## Passage final (`-UniformHalf`)
 
