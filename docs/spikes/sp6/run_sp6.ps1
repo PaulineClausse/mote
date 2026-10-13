@@ -16,7 +16,8 @@ param(
     [switch]$SkipOffline,
     [switch]$SkipDownscale,
     [switch]$WithNoReset,                 # en plus : la meilleure piste sans remise des opacités
-    [switch]$Fast                         # seulement les runs « rapides » : profil, SSIM séparable, images sur GPU
+    [switch]$Fast,                        # seulement les runs « rapides » : profil, SSIM séparable, images sur GPU
+    [switch]$UniformHalf                  # seulement uniform en demi-résolution, version normale, avec et sans remise des opacités
 )
 $ErrorActionPreference = "Continue"
 function Say($m) { Write-Host "[sp6] $m" }
@@ -53,6 +54,21 @@ if ($Fast) {
     }
     & $Python "$here\summarize.py" --runs $Out
     & $Python "$here\curves.py" --runs $Out
+    exit $LASTEXITCODE
+}
+
+if ($UniformHalf) {
+    # le passage -Fast désigne uniform en demi-résolution, mais en version rapide, plus lente sur 8 Go : la mesurer en
+    # version normale ; et sans remise des opacités, que les creux des courbes suivent (toutes les 3 000 itérations)
+    foreach ($seed in $Seeds) {
+        Run "uniform_half_s$seed" @("--strategy", "uniform", "--downscale", "2", "--seed", "$seed")
+        Run "uniform_half_noreset_s$seed" @("--strategy", "uniform", "--downscale", "2", "--reset-every", "0", "--seed", "$seed")
+    }
+    & $Python "$here\summarize.py" --runs $Out
+    & $Python "$here\curves.py" --runs $Out
+    Get-ChildItem "$Out\..\profile\*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+        Select-String -Path $_.FullName -Pattern "profil sur" | ForEach-Object { Say "$($_.Filename) : $($_.Line)" }
+    }
     exit $LASTEXITCODE
 }
 

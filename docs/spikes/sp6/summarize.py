@@ -41,6 +41,17 @@ def fmt(m: dict, nd: int = 1) -> str:
     return s if m["n"] == m["of"] else f"{s} ({m['n']}/{m['of']})"
 
 
+def pick_best(stream_rows: dict) -> str | None:
+    """La règle de SP-6.md §2 : la configuration qui atteint 20 dB le plus tôt ; celles qui en sont à moins d'un
+    écart-type (le plus grand des deux) sont départagées par le PSNR en fin de flux."""
+    if not stream_rows:
+        return None
+    first = min(stream_rows, key=lambda k: stream_rows[k]["t20_s"]["mean"])
+    t0, s0 = stream_rows[first]["t20_s"]["mean"], stream_rows[first]["t20_s"]["std"]
+    tied = [k for k, v in stream_rows.items() if v["t20_s"]["mean"] - t0 <= max(s0, v["t20_s"]["std"])]
+    return max(tied, key=lambda k: stream_rows[k]["psnr_end_of_stream"]["mean"] or float("-inf"))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--runs", type=Path, required=True)
@@ -62,7 +73,7 @@ def main(argv=None) -> int:
                    **{f: ms([r[f] for r in rs]) for f in
                       ("t20_s", "t20_step", "it_per_s", "psnr_end_of_stream", "psnr_final", "n_gauss_final")}}
     stream_rows = {k: v for k, v in rows.items() if not v["offline"] and v["t20_s"]["n"] == v["t20_s"]["of"]}
-    best = min(stream_rows, key=lambda k: stream_rows[k]["t20_s"]["mean"]) if stream_rows else None
+    best = pick_best(stream_rows)
     verdict = None
     if best:
         t = stream_rows[best]["t20_s"]["mean"]
@@ -81,7 +92,7 @@ def main(argv=None) -> int:
               f"{fmt(v['it_per_s']):<13} | {fmt(v['psnr_end_of_stream'], 2):<16} | {fmt(v['psnr_final'], 2):<12} | "
               f"{fmt(v['n_gauss_final'], 0)}")
     if verdict:
-        print(f"\nmeilleure stratégie en flux : {best}, 20 dB à {verdict['t20_s']:.1f} s "
+        print(f"\nmeilleure stratégie en flux (règle de SP-6.md §2) : {best}, 20 dB à {verdict['t20_s']:.1f} s "
               f"-> RISK-09 {verdict['risk09']} (cible {a.target_s:.0f} s)")
     else:
         print("\naucune stratégie en flux n'atteint 20 dB sur toutes ses graines -> RISK-09 confirmé")

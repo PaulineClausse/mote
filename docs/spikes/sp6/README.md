@@ -50,6 +50,18 @@ powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1 -Fast
 
 Le résumé met les deux versions côte à côte, avec la mention « ssim fast img GPU ».
 
+Mesuré le 2026-10-13 : sur la RTX 3070 (8 Go), la version rapide est **plus lente** (environ 25 % d'itérations par
+seconde en moins), sans doute à cause des 2,6 Go d'images gardés sur le GPU. Ne pas la retenir telle quelle.
+
+## Passage final (`-UniformHalf`)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1 -UniformHalf
+```
+
+`uniform` en demi-résolution, version normale, avec puis sans remise des opacités (`--reset-every 0`), 3 graines :
+6 runs d'environ 3 min. Affiche ensuite le résumé, les courbes et les lignes « profil » du passage `-Fast`.
+
 ## Ce que fait l'entraîneur (`incremental.py`)
 
 - **Horloge** : le temps d'entraînement écoulé, évaluations exclues. Une vue d'entraînement est disponible quand son
@@ -74,4 +86,6 @@ Le résumé met les deux versions côte à côte, avec la mention « ssim fast i
 | `stream.py` | chargement de la session, arrivée des vues, couverture, stratégies ; sans torch |
 | `summarize.py` | tableau par configuration, verdict sur RISK-09 |
 | `test_stream.py` | tests de `stream.py`, sans torch : `python test_stream.py` |
+| `curves.py` | PSNR(temps de flux) par configuration, moyenne des graines |
+| `test_summarize.py` | tests du choix de la stratégie (règle de SP-6.md §2) et de `curves.py`, sans torch |
 | `test_loop.py` | test de la boucle sur CPU, rendu gsplat simulé ; demande torch et gsplat |
