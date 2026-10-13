@@ -11,6 +11,7 @@ param(
     [string]$Distances = "",
     [string]$Session = "",                                 # nom YYYYMMDD_hhmmss ; par défaut la plus récente
     [string]$Segments = "",                                # paliers forcés si la détection se trompe : "12-18.5,25-31"
+    [string]$Crop = "",                                    # fraction centrale de la carte pour le plan ; défaut 0.4 (règle)
     [string]$Scene = "$HOME\sp0\sessions\20261007_120820", # S1
     [string]$Work = "$HOME\sp3"
 )
@@ -51,6 +52,8 @@ $env:PYTHONUTF8 = "1"
 $args_ = @("run", "$here\analyze.py", "--wall", $local, "--out", "$Work\out\$Session")
 if ($Distances) { $args_ += @("--distances") + ($dist | ForEach-Object { $_.ToString([Globalization.CultureInfo]::InvariantCulture) }) }
 if ($Segments) { $args_ += @("--segments", $Segments) }
-if (Test-Path "$Scene\left_depth_descriptors.csv") { $args_ += @("--scene", $Scene) } else { Say "S1 introuvable ($Scene) : pas de rétroprojection" }
+if ($Crop) { $args_ += @("--crop", $Crop); $args_[$args_.IndexOf("--out") + 1] = "$Work\out\$Session-crop$Crop" }
+if ($Crop) { Say "-Crop : sensibilité du mur seulement, sans la rétroprojection de S1" }
+elseif (Test-Path "$Scene\left_depth_descriptors.csv") { $args_ += @("--scene", $Scene) } else { Say "S1 introuvable ($Scene) : pas de rétroprojection" }
 & $uv @args_
 exit $LASTEXITCODE
