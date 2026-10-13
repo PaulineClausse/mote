@@ -183,6 +183,23 @@ def _segment_stats(frames: list[dict], ms: list, a: float, b: float, margin: flo
             "normal_w": np.mean(normals, 0) if normals else None, "pos_w": pos}
 
 
+def _timeline(t: np.ndarray, pos: np.ndarray, ms: list, t0: float, step: float = 2.0) -> list[str]:
+    """Relevé toutes les `step` s : distance au plan (médiane, œil gauche) et vitesse de la tête, pour choisir les
+    paliers à la main quand la détection automatique échoue."""
+    out = ["| t (s) | distance au plan (m) | inclinaison (°) | vitesse de la tête (cm/s) |", "|---|---|---|---|"]
+    speed = np.r_[0.0, np.linalg.norm(np.diff(pos, axis=0), axis=1) / np.maximum(np.diff(t), 1e-3)]
+    k = 0.0
+    while t0 + k <= t[-1]:
+        sel = (t >= t0 + k) & (t < t0 + k + step)
+        d = [m["dist"] for m, s in zip(ms, sel) if s and m and not math.isnan(m["dist"])]
+        tl = [m["tilt_deg"] for m, s in zip(ms, sel) if s and m and not math.isnan(m["tilt_deg"])]
+        v = speed[sel]
+        out.append(f"| {f2(k, 0)} | {f2(stats.median(d)) if d else '-'} | {f2(stats.median(tl), 0) if tl else '-'} | "
+                   f"{f2(100 * float(np.median(v)), 0) if len(v) else '-'} |")
+        k += step
+    return out + [""]
+
+
 def _wall_frames(session: Path, segs: list[tuple[float, float]], out_dir: Path, zmax: float = 5.0) -> Path:
     """Une carte gauche au milieu de chaque palier, avec les zones d'ajustement de 15, 25 et 40 % : ce que le plan a
     réellement vu (mur opaque, fenêtre, objets)."""
@@ -192,7 +209,11 @@ def _wall_frames(session: Path, segs: list[tuple[float, float]], out_dir: Path, 
     from matplotlib.patches import Rectangle
     fr = dl.load_frames(session, "left")
     t0 = fr[0]["t"]
-    n = max(1, len(segs))
+    if not segs:   # aucun palier détecté : quatre instants répartis sur la session, pour voir ce que visait la tête
+        span = fr[-1]["t"] - t0
+        segs = [(t0 + span * k / 5, t0 + span * k / 5) for k in range(1, 5)]
+    n = len(segs)
+    im = None
     fig, axs = plt.subplots(1, n, figsize=(4.2 * n, 4.6), squeeze=False)
     for ax, (a, b) in zip(axs[0], segs):
         mid = min(fr, key=lambda f: abs(f["t"] - (a + b) / 2))
@@ -208,7 +229,8 @@ def _wall_frames(session: Path, segs: list[tuple[float, float]], out_dir: Path, 
         ax.set_title(f"palier {a - t0:.0f}-{b - t0:.0f} s")
         ax.set_xticks([]); ax.set_yticks([])
     axs[0][0].legend(loc="lower left", fontsize=7)
-    fig.colorbar(im, ax=axs[0].tolist(), label="z (m)", shrink=0.8)
+    if im is not None:
+        fig.colorbar(im, ax=axs[0].tolist(), label="z (m)", shrink=0.8)
     path = out_dir / "wall_frames.png"
     fig.savefig(path, dpi=110)
     plt.close(fig)
@@ -239,8 +261,10 @@ def wall_section_tracking(session: Path, manual: list[tuple[float, float]] | Non
             out.append(f"Palier {f2(a - t0, 1)}-{f2(b - t0, 1)} s écarté : pas de mur exploitable "
                        f"({L['n']} cartes, {f2(100 * L['valid'], 0)} % valides, inclinaison {f2(L['tilt'], 0)}°).")
     if len(rows) < 3:
-        out += ["", f"**{len(rows)} palier(s) exploitable(s), il en faut 3** : vérifier la figure, ou forcer les paliers "
-                f"avec `--segments`."]
+        out += ["", f"**{len(rows)} palier(s) exploitable(s), il en faut 3** : choisir les paliers dans le relevé "
+                f"ci-dessous (tête immobile : vitesse de quelques cm/s, distance stable), puis relancer avec "
+                f"`-Segments ""début-fin,début-fin,...""` (secondes depuis le début de la session).", ""]
+        out += _timeline(t, pos, ms, t0)
         _wall_plot(t, per_eye, segs, None, out_dir)
         return out + [""]
     n_w = np.mean([r["left"]["normal_w"] for r in rows], 0)
