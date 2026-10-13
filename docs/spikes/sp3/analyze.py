@@ -105,17 +105,12 @@ def timing_section(session: Path) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------------ mur
-def wall_section(session: Path, distances: list[float], manual: list[tuple[float, float]] | None, out_dir: Path,
-                 crop: float) -> list[str]:
+def wall_section(session: Path, distances: list[float] | None, manual: list[tuple[float, float]] | None,
+                 out_dir: Path, crop: float) -> list[str]:
+    if distances is None:
+        return wall_section_tracking(session, manual, out_dir, crop)
     out = ["### Mur à distances mesurées", ""]
-    per_eye = {}
-    for eye in ("left", "right"):
-        fr = dl.load_frames(session, eye)
-        ms = []
-        for f in fr:
-            d = dl.load_raw(session, eye, f)
-            ms.append(dl.wall_measure(d, f["near"], f["far"], f["tans"], crop=crop) if d is not None else None)
-        per_eye[eye] = (fr, ms)
+    per_eye = _measure_eyes(session, crop)
     fr, _ = per_eye["left"]
     t = np.array([f["t"] for f in fr])
     pos = np.stack([f["pos"] for f in fr])
@@ -133,19 +128,8 @@ def wall_section(session: Path, distances: list[float], manual: list[tuple[float
 
     rows = []
     for (a, b), tape in zip(segs, distances):
-        a, b = a + 0.5, b - 0.5                                     # marges : début et fin de palier
         r = {"tape": tape, "a": a - t0, "b": b - t0}
-        for eye, (fr_e, ms) in per_eye.items():
-            sel = [m for m, f in zip(ms, fr_e) if m and a <= f["t"] <= b and not math.isnan(m["dist"])]
-            r[eye] = {
-                "n": len(sel),
-                "dist": stats.median([m["dist"] for m in sel]) if sel else math.nan,
-                "std": stats.pstdev([m["dist"] for m in sel]) if len(sel) > 1 else math.nan,
-                "rms": stats.median([m["rms"] for m in sel]) if sel else math.nan,
-                "valid": stats.median([m["valid"] for m in sel]) if sel else math.nan,
-                "tilt": stats.median([m["tilt_deg"] for m in sel]) if sel else math.nan,
-                "zmed": stats.median([m["z_median"] for m in sel]) if sel else math.nan,
-            }
+        r.update({eye: _segment_stats(fr_e, ms, a, b) for eye, (fr_e, ms) in per_eye.items()})
         rows.append(r)
     meas = np.array([r["left"]["dist"] for r in rows])
     tape = np.array(distances)
@@ -171,7 +155,89 @@ def wall_section(session: Path, distances: list[float], manual: list[tuple[float
     return out + [""]
 
 
-def _wall_plot(t, per_eye, segs, distances, out_dir: Path) -> None:
+def _measure_eyes(session: Path, crop: float) -> dict:
+    """Plan ajusté sur chaque carte de chaque œil : {œil: (descripteurs, mesures)}."""
+    per_eye = {}
+    for eye in ("left", "right"):
+        fr = dl.load_frames(session, eye)
+        ms = []
+        for f in fr:
+            d = dl.load_raw(session, eye, f)
+            ms.append(dl.wall_measure(d, f["near"], f["far"], f["tans"], crop=crop) if d is not None else None)
+        per_eye[eye] = (fr, ms)
+    return per_eye
+
+
+def _segment_stats(frames: list[dict], ms: list, a: float, b: float, margin: float = 0.5) -> dict:
+    """Médianes sur les cartes d'un palier [a, b] (temps ovr, s), sans les `margin` s du début et de la fin."""
+    pairs = [(f, m) for f, m in zip(frames, ms)
+             if m and a + margin <= f["t"] <= b - margin and not math.isnan(m["dist"])]
+    sel = [m for _, m in pairs]
+    med = lambda k: stats.median([m[k] for m in sel]) if sel else math.nan  # noqa: E731
+    normals = [dl.camera_dir_to_world(m["normal"], f["rot"]) for f, m in pairs]
+    pos = np.median(np.stack([f["pos"] * np.array([1.0, 1.0, -1.0]) for f, _ in pairs]), 0) if pairs else None
+    return {"n": len(sel), "dist": med("dist"), "rms": med("rms"), "valid": med("valid"), "tilt": med("tilt_deg"),
+            "zmed": med("z_median"),
+            "std": stats.pstdev([m["dist"] for m in sel]) if len(sel) > 1 else math.nan,
+            "normal_w": np.mean(normals, 0) if normals else None, "pos_w": pos}
+
+
+def wall_section_tracking(session: Path, manual: list[tuple[float, float]] | None, out_dir: Path,
+                          crop: float) -> list[str]:
+    """Sans mètre ruban : la référence est le recul mesuré par le tracking du casque, projeté sur la normale du mur.
+    Si la linéarisation est juste, la distance au plan croît exactement de ce recul : pente 1 ; le décalage du
+    premier palier s'élimine."""
+    out = ["### Mur, référence : recul mesuré par le tracking", ""]
+    per_eye = _measure_eyes(session, crop)
+    fr, ms = per_eye["left"]
+    t = np.array([f["t"] for f in fr])
+    pos = np.stack([f["pos"] for f in fr])
+    t0 = t[0]
+    segs = manual or dl.stationary_segments(t, pos, max_speed=0.05, min_s=3.0)
+    rows = []
+    for a, b in segs:
+        r = {"a": a - t0, "b": b - t0, **{eye: _segment_stats(f_e, m_e, a, b) for eye, (f_e, m_e) in per_eye.items()}}
+        L = r["left"]
+        if L["n"] >= 3 and L["valid"] >= 0.2 and L["tilt"] <= 30 and L["normal_w"] is not None:
+            rows.append(r)
+        else:
+            out.append(f"Palier {f2(a - t0, 1)}-{f2(b - t0, 1)} s écarté : pas de mur exploitable "
+                       f"({L['n']} cartes, {f2(100 * L['valid'], 0)} % valides, inclinaison {f2(L['tilt'], 0)}°).")
+    if len(rows) < 3:
+        out += ["", f"**{len(rows)} palier(s) exploitable(s), il en faut 3** : vérifier la figure, ou forcer les paliers "
+                f"avec `--segments`."]
+        _wall_plot(t, per_eye, segs, None, out_dir)
+        return out + [""]
+    n_w = np.mean([r["left"]["normal_w"] for r in rows], 0)
+    n_w /= np.linalg.norm(n_w)
+    p0 = rows[0]["left"]["pos_w"]
+    ref = np.array([-(r["left"]["pos_w"] - p0) @ n_w for r in rows])     # recul vers l'arrière, depuis le 1er palier
+    meas = np.array([r["left"]["dist"] for r in rows])
+    offset = float(np.median(meas - ref))                                  # distance au mur au premier palier
+    slope, icpt = np.polyfit(ref, meas, 1)
+    out += ["", f"Zone centrale de {int(crop * 100)} % de chaque carte, plan ajusté avec rejet itératif (3 MAD). "
+            f"Distance : de l'origine de la carte (sa pose de création) au plan. Recul : déplacement de cette origine "
+            f"entre paliers, mesuré par le tracking, projeté sur la normale du mur. Attendu = recul + distance au "
+            f"premier palier (médiane de mesuré - recul : {f2(100 * offset, 1)} cm).", "",
+            "| Palier (s) | Recul, tracking (m) | Distance au plan, gauche (m) | droite (m) | Attendue (m) | "
+            "Erreur (cm) | Erreur (% de la distance) | σ temporelle (cm) | RMS au plan (cm) | Pixels valides (%) | "
+            "Inclinaison (°) | Cartes |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r, rf in zip(rows, ref):
+        L, R = r["left"], r["right"]
+        exp = rf + offset
+        e = L["dist"] - exp
+        out.append(f"| {f2(r['a'], 0)}-{f2(r['b'], 0)} | {f2(rf, 3)} | {f2(L['dist'], 3)} | {f2(R['dist'], 3)} | "
+                   f"{f2(exp, 3)} | {f2(100 * e, 1)} | {f2(100 * e / exp, 1)} | {f2(100 * L['std'], 1)} | "
+                   f"{f2(100 * L['rms'], 1)} | {f2(100 * L['valid'], 0)} | {f2(L['tilt'], 1)} | {L['n']} |")
+    out += ["", f"Droite distance = a x recul + b : a = {f2(slope, 3)} (1 : pas d'erreur d'échelle de la linéarisation), "
+            f"b = {f2(icpt, 3)} m. Plage couverte : {f2(meas.min(), 2)} à {f2(meas.max(), 2)} m.", ""]
+    _wall_plot(t, per_eye, segs, None, out_dir, expected=[(r["a"] + t0, r["b"] + t0, rf + offset)
+                                                          for r, rf in zip(rows, ref)])
+    out.append(f"Figure : `{out_dir / 'wall_series.png'}` (distance au plan, carte par carte ; tirets : attendue).")
+    return out + [""]
+
+
+def _wall_plot(t, per_eye, segs, distances, out_dir: Path, expected=None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -180,8 +246,10 @@ def _wall_plot(t, per_eye, segs, distances, out_dir: Path) -> None:
         ax.plot([f["t"] - t[0] for f, m in zip(fr, ms) if m], [m["dist"] for m in ms if m], ".", ms=2, label=eye)
     for i, (a, b) in enumerate(segs):
         ax.axvspan(a - t[0], b - t[0], alpha=0.15)
-        if i < len(distances):
+        if distances and i < len(distances):
             ax.hlines(distances[i], a - t[0], b - t[0], colors="k", linestyles="--")
+    for a, b, d in expected or []:
+        ax.hlines(d, a - t[0], b - t[0], colors="k", linestyles="--")
     ax.set_xlabel("temps depuis le début de la session (s)")
     ax.set_ylabel("distance au plan (m)")
     ax.legend()
@@ -249,7 +317,8 @@ def scene_section(session: Path, out_dir: Path, max_frames: int, step: int, zmax
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--wall", type=Path, help="session enregistrée avec l'APK SP3 devant le mur")
-    ap.add_argument("--distances", type=float, nargs="+", help="distances au mètre ruban, dans l'ordre (m)")
+    ap.add_argument("--distances", type=float, nargs="+",
+                    help="distances au mètre ruban, dans l'ordre (m) ; sans elles, référence = recul mesuré par le tracking")
     ap.add_argument("--segments", help="paliers forcés, en s depuis le début : 12-18.5,25-31")
     ap.add_argument("--scene", type=Path, help="session de scène à rétroprojeter (S1)")
     ap.add_argument("--out", type=Path, default=Path.home() / "sp3" / "out")
@@ -266,12 +335,12 @@ def main(argv=None) -> int:
     if a.wall:
         say(f"session du mur : {a.wall}")
         lines += format_section(a.wall) + timing_section(a.wall)
-        if a.distances:
-            manual = None
-            if a.segments:
-                t0 = dl.load_frames(a.wall, "left")[0]["t"]
-                manual = [(t0 + float(x.split("-")[0]), t0 + float(x.split("-")[1])) for x in a.segments.split(",")]
-            lines += wall_section(a.wall, a.distances, manual, a.out, a.crop)
+        manual = None
+        if a.segments:
+            t0 = dl.load_frames(a.wall, "left")[0]["t"]
+            manual = [(t0 + float(x.split("-")[0]), t0 + float(x.split("-")[1])) for x in a.segments.split(",")]
+        # sans --distances, la référence est le recul mesuré par le tracking
+        lines += wall_section(a.wall, a.distances or None, manual, a.out, a.crop)
     if a.scene:
         say(f"scène : {a.scene}")
         if not a.wall:

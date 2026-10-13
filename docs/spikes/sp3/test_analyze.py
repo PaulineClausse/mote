@@ -79,7 +79,27 @@ def main() -> int:
         assert "sur 300, un pixel sur 2" in text and "z ≤ 5,0 m" in text, text
         for f in ("wall_series.png", "scene_views.png", "scene_frame.png", "scene_depth.ply", "sp3_tables.md"):
             assert (out / f).exists(), f
-    print("ok analyse de bout en bout")
+    print("ok analyse de bout en bout, référence au mètre")
+
+    # sans mètre : la référence est le recul mesuré par la pose ; la caméra recule de 0,5 m à 3 m, le décalage du
+    # premier palier vaut 0,55 m et l'erreur résiduelle doit être nulle, la pente 1
+    with tempfile.TemporaryDirectory() as d:
+        s = fake_session(Path(d))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = analyze.main(["--wall", str(s), "--out", str(Path(d) / "out")])
+        text = buf.getvalue()
+        assert rc == 0, text
+        assert "référence : recul mesuré par le tracking" in text and "a = 1,000" in text, text
+        assert "(médiane de mesuré - recul : 55,0 cm)" in text, text
+        rows = [ln for ln in text.splitlines() if ln.startswith("| ") and "-" in ln.split("|")[1]
+                and ln.split("|")[1].strip()[0].isdigit()]
+        assert len(rows) == 4, text
+        reculs = [float(ln.split("|")[2].strip().replace(",", ".")) for ln in rows]
+        assert [round(x, 3) for x in reculs] == [0.0, 0.5, 1.5, 2.5], reculs
+        for ln in rows:
+            assert abs(float(ln.split("|")[6].strip().replace(",", "."))) <= 0.2, ln       # erreur ≤ 2 mm
+    print("ok analyse de bout en bout, référence au tracking")
     return 0
 
 

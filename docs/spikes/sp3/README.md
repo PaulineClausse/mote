@@ -50,10 +50,15 @@ Session B, facultative : la même chose devant un mur blanc uni, pour voir ce qu
 ## 3. Analyse
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File docs\spikes\sp3\run_sp3.ps1 -Distances 0.52,1.01,2.0,3.03
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp3\run_sp3.ps1                                # référence : tracking
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp3\run_sp3.ps1 -Distances 0.52,1.01,2.0,3.03  # référence : mètre
 ```
 
-`-Distances` prend les valeurs notées, dans l'ordre. Le script fait trois choses :
+Sans `-Distances`, la référence est le recul du casque entre deux paliers, mesuré par son tracking et projeté sur la
+normale du mur. La distance au plan doit croître d'autant (pente 1). C'est le mode à utiliser si les distances n'ont pas
+été relevées précisément.
+
+Avec `-Distances`, donner les valeurs notées, dans l'ordre, avec un point décimal. Le script fait trois choses :
 
 1. Il récupère par `adb pull` la dernière session de l'APK SP3 dans `$HOME\sp3\sessions`.
 2. Il lance `analyze.py`.
