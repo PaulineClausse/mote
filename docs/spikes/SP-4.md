@@ -24,7 +24,7 @@ Configuration nominale : deux caméras en 1280 x 1280, 10 paires/s, JPEG q90.
 
 ## 2. Règle, écrite avant de regarder les chiffres
 
-Phases (§3) : `Baseline` (caméras actives, rien lu), `GetColors` (lecture seule), `Nominal` (lecture + core).
+Phases (§3) : `Baseline` (caméras actives, rien lu), `GetColors` (lecture seule), `Nominal` (lecture + core), et `Async` (relecture GPU asynchrone + core, ajoutée après le premier passage, voir plus bas).
 
 - **H-05 validée** si, en phase `Nominal` :
   - la fréquence d'affichage reste au moins à 98 % de celle de `Baseline` ;
@@ -46,6 +46,12 @@ Phases (§3) : `Baseline` (caméras actives, rien lu), `GetColors` (lecture seul
     (1 ms au moins).
 
 Date de fixation de la règle : 2026-10-13, avant toute mesure.
+
+**Écart, après le premier passage (2026-10-13).** Ce passage a montré deux choses. D'abord, `GetColors` coûte 15,5 ms par paire sur le thread principal : l'affichage tombe de 71,9 à 62 images/s, avec 17 % de frames ratées, dès la phase `GetColors`. Ensuite, la sonde n'a poussé **aucune paire** au core : elle écartait les paires sur une taille de tableau qu'elle ne journalisait pas. Le core n'a donc pas été mesuré. Deux changements :
+- la sonde prend la taille sur la texture et journalise ses écarts ;
+- une phase `Async` est ajoutée (relecture GPU asynchrone, puis push au core). C'est le remède que la règle prévoit ; les mêmes critères lui sont appliqués.
+
+La règle elle-même ne change pas : le verdict sur H-05 porte sur `Nominal`, et `Async` dit si le remède suffit. L'analyse refuse désormais de conclure quand le core n'a reçu aucune paire.
 
 ## 3. Méthode
 

@@ -24,13 +24,13 @@ Le script fait quatre choses :
    conversation.
 4. Il installe l'APK sous `com.t34400.QuestRealityCapture.sp4`, puis pousse `sp4_config.json` (durées des phases).
 
-## 2. Mesure (environ 6 minutes)
+## 2. Mesure (environ 8 minutes)
 
 1. Casque chargé et frais, aucune autre app ouverte.
 2. Lancer « QuestRealityCapture SP4 » (Sources inconnues). Au premier lancement, accepter les permissions caméra et
    scène, puis quitter l'app et la relancer.
 3. Porter le casque et regarder la pièce en bougeant normalement la tête, comme pendant un scan. Le texte en bas du
-   champ de vision indique la phase en cours : `Warmup`, `Baseline`, `GetColors`, `Nominal`, puis « SP-4 terminé ».
+   champ de vision indique la phase en cours : `Warmup`, `Baseline`, `GetColors`, `Nominal`, `Async`, puis « SP-4 terminé ».
 4. **Ne pas appuyer sur le bouton menu** : il démarrerait l'enregistrement de QRC, qui couperait les caméras de la
    sonde en s'arrêtant.
 5. À « SP-4 terminé », retirer le casque.
