@@ -87,5 +87,11 @@ $dev = adb devices | Select-String "\tdevice$"
 if (-not $dev) { Say "aucun casque vu par adb (adb devices) : brancher le casque, autoriser le débogage USB"; exit 5 }
 adb install -r $apk
 if ($LASTEXITCODE -ne 0) { Say "échec de adb install"; exit 5 }
-adb push "$here\sp4_config.json" "/sdcard/Android/data/$pkg/files/sp4_config.json"
+# Le dossier files/ de l'app n'existe qu'après son premier lancement, et adb ne peut pas le créer (Android 11+) :
+# avant ce lancement, la copie échoue sans conséquence, la sonde ayant les mêmes valeurs par défaut que le fichier.
+adb push "$here\sp4_config.json" "/sdcard/Android/data/$pkg/files/sp4_config.json" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Say "sp4_config.json non copié (l'app n'a jamais été lancée) : sans effet, la sonde a les mêmes valeurs par défaut."
+    Say "Pour changer les durées : lancer l'app une fois, puis relancer ce script."
+}
 Say "installé : « QuestRealityCapture SP4 » dans la bibliothèque du casque (Sources inconnues). Suivre README.md §2."
