@@ -43,6 +43,30 @@ def f2(x, nd=2):
 
 
 # ------------------------------------------------------------------------------------------------ format et cadence
+def files_check(session: Path) -> list[str]:
+    """Cartes annoncées par les descripteurs contre fichiers .raw présents et de la bonne taille : une copie incomplète
+    du casque, ou des noms qui ne correspondent pas, se voient ici plutôt qu'en distances vides."""
+    out = []
+    for eye in ("left", "right"):
+        fr = dl.load_frames(session, eye)
+        d = Path(session) / f"{eye}_depth"
+        present = {p.name: p.stat().st_size for p in d.glob("*.raw")} if d.exists() else {}
+        missing = [f for f in fr if f"{f['ts']}.raw" not in present]
+        wrong = [f for f in fr if f"{f['ts']}.raw" in present and present[f"{f['ts']}.raw"] != 4 * f["W"] * f["H"]]
+        if missing or wrong:
+            ex_m = ", ".join(f"{f['ts']}.raw" for f in missing[:3])
+            ex_p = ", ".join(sorted(present)[:3]) or "aucun"
+            ex_w = ", ".join(f"{f['ts']}.raw ({present[str(f['ts']) + '.raw']} o)" for f in wrong[:3])
+            out.append(f"**{eye} : {len(fr)} cartes annoncées, {len(present)} fichiers .raw dans `{d.name}`, "
+                       f"{len(missing)} manquants, {len(wrong)} de taille inattendue (attendu {4 * fr[0]['W'] * fr[0]['H']} o).** "
+                       f"Manquants, par exemple : {ex_m or '-'} ; présents : {ex_p}"
+                       + (f" ; mauvaise taille : {ex_w}" if wrong else "") + ".")
+    if out:
+        out += ["", "Copie du casque probablement incomplète : supprimer le dossier de la session dans "
+                "`$HOME\\sp3\\sessions` et relancer run_sp3.ps1, qui la recopie.", ""]
+    return out
+
+
 def format_section(session: Path) -> list[str]:
     out = ["### Résolution, cadence et valeurs (lues à l'exécution)", ""]
     out += ["| Œil | Cartes | Résolution | Cadence médiane (Hz) | Intervalle médian / p95 (ms) | near_z | far_z |",
@@ -393,7 +417,7 @@ def main(argv=None) -> int:
     lines: list[str] = []
     if a.wall:
         say(f"session du mur : {a.wall}")
-        lines += format_section(a.wall) + timing_section(a.wall)
+        lines += files_check(a.wall) + format_section(a.wall) + timing_section(a.wall)
         manual = None
         if a.segments:
             t0 = dl.load_frames(a.wall, "left")[0]["t"]
