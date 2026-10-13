@@ -1,10 +1,12 @@
-# SP-3 : récupère la dernière session de l'APK SP3 sur le casque et lance l'analyse (mur + rétroprojection de S1).
+﻿# SP-3 : récupère la dernière session de l'APK SP3 sur le casque et lance l'analyse (mur + rétroprojection de S1).
 # Outil de spike jetable, pas du code mote. Mode d'emploi : README.md de ce dossier.
 #
 #   powershell -ExecutionPolicy Bypass -File docs\spikes\sp3\run_sp3.ps1 -Distances 0.52,1.01,2.0,3.03
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][double[]]$Distances,   # au mètre ruban, mur -> face avant du casque, dans l'ordre
+    # au mètre ruban, mur -> face avant du casque, dans l'ordre, en m avec un point décimal : "0.52,1.01,2.0,3.03".
+    # Une chaîne et pas un tableau : « powershell -File » passe la liste en un seul argument.
+    [Parameter(Mandatory = $true)][string]$Distances,
     [string]$Session = "",                                 # nom YYYYMMDD_hhmmss ; par défaut la plus récente
     [string]$Segments = "",                                # paliers forcés si la détection se trompe : "12-18.5,25-31"
     [string]$Scene = "$HOME\sp0\sessions\20261007_120820", # S1
@@ -14,6 +16,18 @@ $ErrorActionPreference = "Continue"
 function Say($m) { Write-Host "[sp3] $m" }
 $here = $PSScriptRoot
 $remote = "/sdcard/Android/data/com.t34400.QuestRealityCapture.sp3/files"
+$dist = @($Distances -split "[,;\s]+" | Where-Object { $_ } | ForEach-Object {
+    $v = 0.0
+    # « 01 » vient d'une virgule décimale (1,01 coupé en 1 et 01) : refusé plutôt que lu de travers
+    if ($_ -match '^0\d' -or -not [double]::TryParse($_, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v)) {
+        Say "distance illisible : « $_ » (mètres, point décimal, séparées par des virgules : 0.52,1.01,2.0,3.03)"; exit 1
+    }
+    $v })
+if ($dist.Count -lt 3) { Say "au moins trois distances (reçu : $($dist -join ' ; '))"; exit 1 }
+for ($i = 1; $i -lt $dist.Count; $i++) {
+    if ($dist[$i] -le $dist[$i - 1]) { Say "distances non croissantes ($($dist -join ' ; ')) : point décimal, et dans l'ordre de la capture"; exit 1 }
+}
+Say "distances : $($dist -join ' ; ') m"
 New-Item -ItemType Directory -Force "$Work\sessions" | Out-Null
 
 if (-not $Session) {
@@ -32,7 +46,7 @@ if (-not (Test-Path "$local\depth_readback_timing.csv")) { Say "attention : pas 
 $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
 if (-not $uv) { $uv = "$HOME\.local\bin\uv.exe" }
 $env:PYTHONUTF8 = "1"
-$args_ = @("run", "$here\analyze.py", "--wall", $local, "--distances") + ($Distances | ForEach-Object { "$_" }) +
+$args_ = @("run", "$here\analyze.py", "--wall", $local, "--distances") + ($dist | ForEach-Object { $_.ToString([Globalization.CultureInfo]::InvariantCulture) }) +
          @("--out", "$Work\out\$Session")
 if ($Segments) { $args_ += @("--segments", $Segments) }
 if (Test-Path "$Scene\left_depth_descriptors.csv") { $args_ += @("--scene", $Scene) } else { Say "S1 introuvable ($Scene) : pas de rétroprojection" }

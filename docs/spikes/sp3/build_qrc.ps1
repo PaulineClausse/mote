@@ -1,4 +1,4 @@
-# SP-3 : QuestRealityCapture v1.5.0 instrumenté (chronométrage de la relecture de profondeur), en une commande :
+﻿# SP-3 : QuestRealityCapture v1.5.0 instrumenté (chronométrage de la relecture de profondeur), en une commande :
 # clone, patch, build Android en batchmode, installation sur le casque, configuration.
 # Outil de spike jetable, pas du code mote. Mode d'emploi : README.md de ce dossier.
 #
@@ -47,14 +47,25 @@ Say "patch appliqué ($((git -C $qrc status --short) -join ' ; '))"
 
 # 4. Build Android (premier build : 10 à 20 min, import des packages compris)
 if (-not (Test-Path $apk) -or (Get-Item $apk).LastWriteTime -lt (Get-Item "$here\qrc_patch\DepthRenderTextureExporter.cs").LastWriteTime) {
-    Say "build Android, journal : $Work\build.log"
-    $p = Start-Process -FilePath $Unity -Wait -PassThru -NoNewWindow -ArgumentList @(
-        "-batchmode", "-nographics", "-quit", "-projectPath", "`"$qrc`"", "-buildTarget", "Android",
-        "-executeMethod", "Sp3Build.Build", "-sp3Output", "`"$apk`"", "-logFile", "`"$Work\build.log`"")
-    if ($p.ExitCode -ne 0 -or -not (Test-Path $apk)) {
-        Say "ÉCHEC du build (code $($p.ExitCode)). Dernières lignes du journal :"
-        Get-Content "$Work\build.log" -Tail 30
-        exit 4
+    # L'import des packages échoue parfois sous Windows (EPERM au renommage dans Library\PackageCache, fichier tenu
+    # par l'antivirus ou l'indexeur) : on relance, le cache déjà rempli est réutilisé.
+    for ($try = 1; $try -le 3; $try++) {
+        Say "build Android (essai $try/3), journal : $Work\build.log"
+        Get-ChildItem "$qrc\Library\PackageCache" -Filter ".tmp-*" -Directory -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $p = Start-Process -FilePath $Unity -Wait -PassThru -NoNewWindow -ArgumentList @(
+            "-batchmode", "-nographics", "-quit", "-projectPath", "`"$qrc`"", "-buildTarget", "Android",
+            "-executeMethod", "Sp3Build.Build", "-sp3Output", "`"$apk`"", "-logFile", "`"$Work\build.log`"")
+        if ($p.ExitCode -eq 0 -and (Test-Path $apk)) { break }
+        $transient = Select-String -Path "$Work\build.log" -Pattern "EPERM|EBUSY|could not be added to the local file system" -Quiet
+        if (-not $transient -or $try -eq 3) {
+            Say "ÉCHEC du build (code $($p.ExitCode)). Dernières lignes du journal :"
+            Get-Content "$Work\build.log" -Tail 30
+            if ($transient) { Say "erreur d'accès répétée dans PackageCache : exclure $Work de l'analyse en temps réel de Windows Defender, fermer Unity Hub et l'éditeur, puis relancer" }
+            exit 4
+        }
+        Say "erreur d'accès transitoire dans PackageCache, nouvel essai dans 10 s"
+        Start-Sleep -Seconds 10
     }
 }
 Say "APK : $apk ($([math]::Round((Get-Item $apk).Length / 1MB)) Mo)"
