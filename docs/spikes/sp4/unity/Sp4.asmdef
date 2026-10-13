@@ -1,0 +1,18 @@
+{
+    "name": "Sp4",
+    "rootNamespace": "Sp4",
+    "references": [
+        "meta.xr.mrutilitykit",
+        "GUID:d0444c2808025b94fa59a06393315ebd",
+        "GUID:f64c9ebcd7899c3448a08dc9f9ddbe30"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

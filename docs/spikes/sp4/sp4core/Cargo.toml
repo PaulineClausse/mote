@@ -1,0 +1,28 @@
+[package]
+name = "sp4core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "SP-4 (jetable) : .so minimal chargé par Unity sur Quest 3S, encodage JPEG libjpeg-turbo et écriture MCAP"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+mcap = { version = "0.25", default-features = false, features = ["zstd"] }
+prost = "0.14"
+# libjpeg-turbo construit depuis ses sources par cmake ; SIMD NEON sur arm64 sans outil en plus. Pas de
+# « require-simd » : sur un PC Windows sans NASM, les tests tournent sans SIMD.
+turbojpeg = { version = "1.5", default-features = false, features = ["cmake"] }
+
+[build-dependencies]
+prost = "0.14"
+prost-build = "0.14"
+protox = "0.10"
+
+[profile.release]
+debug = false
+lto = "thin"
