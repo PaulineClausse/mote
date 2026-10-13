@@ -69,6 +69,8 @@ def main() -> int:
         assert rc == 0, text
         assert "| 32 x 32 |" in text and "| 10,0 |" in text, text                    # résolution, 10 Hz
         assert "Décalage constant (médiane de mesuré - mètre) : 5,0 cm" in text, text
+        assert "Pentes : tracking / mètre = 1,000 ; profondeur / mètre = 1,000 ; profondeur / tracking = 1,000" in text, text
+        assert "Écarts à la droite ajustée : 0,0 / 0,0 / 0,0 / 0,0 cm" in text.replace("-0,0", "0,0"), text
         lines = [ln for ln in text.splitlines() if ln.startswith("| 0,50 |") or ln.startswith("| 1,00 |")
                  or ln.startswith("| 2,00 |") or ln.startswith("| 3,00 |")]
         assert len(lines) == 4, text

@@ -175,9 +175,46 @@ def wall_section(session: Path, distances: list[float] | None, manual: list[tupl
     out += ["", f"Décalage constant (médiane de mesuré - mètre) : {f2(100 * offset, 1)} cm : l'origine de la carte n'est "
             f"pas la face avant du casque où s'appuie le mètre. Droite mesuré = a x mètre + b : a = {f2(slope, 3)}, "
             f"b = {f2(100 * icpt, 1)} cm (a = 1 : pas d'erreur d'échelle).", ""]
+    out += _linearity_lines(tape, meas, slope, icpt)
+    # trois mesures du même recul : mètre, tracking, profondeur ; départage une erreur d'échelle de l'une d'elles
+    ok = [r for r in rows if r["left"]["normal_w"] is not None and r["left"]["pos_w"] is not None]
+    if len(ok) == len(rows) >= 2:
+        n_w = np.mean([r["left"]["normal_w"] for r in rows], 0)
+        n_w /= np.linalg.norm(n_w)
+        trk = np.array([-(r["left"]["pos_w"] - rows[0]["left"]["pos_w"]) @ n_w for r in rows])
+        d_tape, d_meas = tape - tape[0], meas - meas[0]
+        a_trk = float(np.polyfit(d_tape, trk, 1)[0])
+        a_dep_trk = float(np.polyfit(trk, meas, 1)[0])
+        out += ["Le même recul mesuré trois fois, depuis le premier palier :", "",
+                "| Mètre (m) | Tracking (m) | Profondeur (m) |", "|---|---|---|"]
+        out += [f"| {f2(a, 3)} | {f2(b, 3)} | {f2(c, 3)} |" for a, b, c in zip(d_tape, trk, d_meas)]
+        out += ["", f"Pentes : tracking / mètre = {f2(a_trk, 3)} ; profondeur / mètre = {f2(slope, 3)} ; "
+                f"profondeur / tracking = {f2(a_dep_trk, 3)}. Celle qui s'écarte de 1 contre le mètre porte l'erreur "
+                f"d'échelle.", ""]
+        out += _movement_lines(rows, n_w)
     _wall_plot(t, per_eye, segs, distances, out_dir)
     out.append(f"Figure : `{out_dir / 'wall_series.png'}` (distance au plan, carte par carte, et paliers retenus).")
     return out + [""]
+
+
+def _linearity_lines(x: np.ndarray, y: np.ndarray, slope: float, icpt: float) -> list[str]:
+    """Écarts à la droite ajustée : petits, la profondeur est linéaire et seule son échelle peut différer."""
+    res = 100 * (y - (slope * np.asarray(x) + icpt))
+    return [f"Écarts à la droite ajustée : {' / '.join(f2(v, 1) for v in res)} cm (linéarité de la profondeur, échelle "
+            f"mise à part).", ""]
+
+
+def _movement_lines(rows: list[dict], n_w: np.ndarray) -> list[str]:
+    """Déplacement total entre paliers et son angle avec la normale du mur : un recul de biais est déjà corrigé par la
+    projection, mais une normale mal estimée réduirait le recul projeté (facteur cos)."""
+    p0 = rows[0]["left"]["pos_w"]
+    parts = []
+    for r in rows[1:]:
+        dp = r["left"]["pos_w"] - p0
+        n = float(np.linalg.norm(dp))
+        ang = math.degrees(math.acos(min(1.0, abs(float(dp @ n_w)) / n))) if n > 0 else math.nan
+        parts.append(f"{f2(n, 3)} m à {f2(ang, 0)}°")
+    return [f"Déplacement total depuis le premier palier, et angle avec la normale du mur : {' ; '.join(parts)}.", ""]
 
 
 def _measure_eyes(session: Path, crop: float) -> dict:
@@ -314,6 +351,7 @@ def wall_section_tracking(session: Path, manual: list[tuple[float, float]] | Non
                    f"{f2(100 * L['rms'], 1)} | {f2(100 * L['valid'], 0)} | {f2(L['tilt'], 1)} | {L['n']} |")
     out += ["", f"Droite distance = a x recul + b : a = {f2(slope, 3)} (1 : pas d'erreur d'échelle de la linéarisation), "
             f"b = {f2(icpt, 3)} m. Plage couverte : {f2(meas.min(), 2)} à {f2(meas.max(), 2)} m.", ""]
+    out += _linearity_lines(ref, meas, slope, icpt) + _movement_lines(rows, n_w)
     _wall_plot(t, per_eye, segs, None, out_dir, expected=[(r["a"] + t0, r["b"] + t0, rf + offset)
                                                           for r, rf in zip(rows, ref)])
     out.append(f"Figure : `{out_dir / 'wall_series.png'}` (distance au plan, carte par carte ; tirets : attendue).")
