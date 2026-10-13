@@ -35,6 +35,17 @@ la session. Le mètre s'appuie sur la face avant du casque, pas sur l'origine de
 
 Date de fixation de la règle : 2026-10-13, avant toute mesure.
 
+**Écart, consigné le 2026-10-13 après la capture du mur et avant toute analyse** : les distances n'ont pas été relevées
+au mètre avec précision. La référence devient le recul mesuré par le tracking du casque entre les paliers, projeté sur
+la normale du mur. Ce qui change :
+- « erreur après décalage » : écart entre la distance au plan et (recul + distance au premier palier) ;
+- la pente a est celle de la distance contre le recul.
+
+Les seuils ne changent pas (2 %, |a - 1| ≤ 0,02, 5 %, 3 %, 50 %). Le tracking est précis à environ 1 cm sur une pièce
+(SP-0 : translation médiane de 0,97 cm). C'est une référence indépendante de la profondeur, que le mètre n'aurait pas
+dépassée en précision à ces distances. La pente vérifie l'échelle de la linéarisation. Une erreur constante sur la
+distance absolue ne serait en revanche pas vue : elle se confond avec le décalage, comme avec le mètre.
+
 ## 3. Méthode
 
 Outils : `docs/spikes/sp3/` (README.md). QuestRealityCapture v1.5.0 (SRC-1, commit 649c012), instrumenté par un seul

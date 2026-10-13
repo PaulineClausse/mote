@@ -95,6 +95,12 @@ def world_points(z: np.ndarray, K: dict, pos: np.ndarray, rot_xyzw: np.ndarray) 
     return pw * np.array([1.0, 1.0, -1.0])                          # monde main droite
 
 
+def camera_dir_to_world(v_cv, rot_xyzw: np.ndarray) -> np.ndarray:
+    """Direction du repère OpenCV de la caméra vers le monde main droite (même chaîne que world_points)."""
+    v = np.asarray(v_cv, float) * np.array([1.0, -1.0, 1.0])
+    return (quat_matrix(rot_xyzw) @ v) * np.array([1.0, 1.0, -1.0])
+
+
 def wall_measure(d: np.ndarray, near: float, far: float, tans: tuple, crop: float = 0.4, iters: int = 6) -> dict:
     """Plan ajusté sur la zone centrale (fraction `crop` de chaque dimension) : distance perpendiculaire de la caméra
     au plan, inclinaison du plan par rapport à l'axe de visée, résidu RMS, fraction de pixels valides et d'inliers."""
@@ -121,7 +127,9 @@ def wall_measure(d: np.ndarray, near: float, far: float, tans: tuple, crop: floa
             return out
     c = p[keep].mean(0)
     n = np.linalg.svd(p[keep] - c, full_matrices=False)[2][2]
-    out.update(inliers=keep.sum() / n_crop, dist=float(abs(c @ n)),
+    if c @ n < 0:
+        n = -n                                                      # normale orientée de la caméra vers le mur
+    out.update(inliers=keep.sum() / n_crop, dist=float(c @ n), normal=n.tolist(),
                tilt_deg=float(math.degrees(math.acos(min(1.0, abs(n[2]))))),
                rms=float(np.sqrt(np.mean(((p[keep] - c) @ n) ** 2))))
     return out
