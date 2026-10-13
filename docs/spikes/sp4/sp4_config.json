@@ -2,11 +2,13 @@
   "warmupS": 20,
   "baselineS": 60,
   "getColorsS": 60,
-  "nominalS": 180,
+  "nominalS": 120,
+  "asyncS": 180,
   "pairsPerSecond": 10,
   "jpegQuality": 90,
   "threads": 2,
   "queuePairs": 8,
   "benchImages": 40,
-  "maxFramerate": 10
+  "maxFramerate": 10,
+  "asyncMaxInflightPairs": 3
 }

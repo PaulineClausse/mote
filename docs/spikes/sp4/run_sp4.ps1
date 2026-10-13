@@ -19,10 +19,19 @@ $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
 if (-not $uv) { $uv = "$HOME\.local\bin\uv.exe" }
 $env:PYTHONUTF8 = "1"
 & $uv run --no-project "$here\analyze_sp4.py" $run
-$mcap = Get-ChildItem "$run\*.mcap" | Sort-Object LastWriteTime | Select-Object -Last 1
-if (-not $mcap) { Say "aucun MCAP dans $run"; exit 3 }
-""
-"### MCAP écrit sur le casque, relu sur PC"
-""
-& $uv run "$here\verify_mcap.py" $mcap.FullName --out "$run\first_pair"
-Say "journaux, MCAP et première paire (JPEG) dans $run"
+# Un MCAP par phase qui écrit (Nominal, Async) : leurs noms sont dans sp4_phases.jsonl ; d'anciens passages peuvent
+# en avoir laissé d'autres dans le dossier.
+$names = @(Get-Content "$run\sp4_phases.jsonl" | ForEach-Object {
+    try { $j = $_ | ConvertFrom-Json } catch { return }
+    if ($j.core -and $j.core.mcap) { [pscustomobject]@{ Phase = $j.phase; File = Split-Path $j.core.mcap -Leaf } }
+})
+if (-not $names) { Say "aucun MCAP annoncé dans sp4_phases.jsonl"; exit 3 }
+foreach ($n in $names) {
+    $file = "$run\$($n.File)"
+    ""
+    "### MCAP de la phase $($n.Phase), écrit sur le casque, relu sur PC"
+    ""
+    if (-not (Test-Path $file)) { Say "$($n.File) absent de $run"; continue }
+    & $uv run "$here\verify_mcap.py" $file --out "$run\first_pair_$($n.Phase)"
+}
+Say "journaux, MCAP et première paire (JPEG) de chaque phase dans $run"

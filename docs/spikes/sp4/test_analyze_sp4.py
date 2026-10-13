@@ -62,7 +62,28 @@ def test_validated_and_budget():
 def test_display_drop_from_getcolors_is_a_reserve():
     t = run([phase("Baseline", 72.0, 10, 4320), phase("GetColors", 60.0, 400, 3600, gc=25.0),
              phase("Nominal", 60.0, 1200, 10800, gc=25.0, core=core())])
-    assert "**validée avec réserve**" in t and "AsyncGPUReadback" in t, t
+    assert "**validée avec réserve**" in t and "relecture GPU asynchrone" in t, t
+
+
+def test_no_pair_pushed_means_no_verdict():
+    # premier passage réel (2026-10-13) : la sonde n'a rien poussé au core ; l'analyse ne doit pas conclure
+    empty = core(pushed=0, encoded=0, cpu=0.0)
+    t = run([phase("Baseline", 71.9, 4, 4314), phase("GetColors", 61.9, 628, 3714, gc=15.5),
+             phase("Nominal", 62.0, 1877, 11160, gc=15.8), {"phase": "Close", "status": 0, "core": empty}])
+    assert "Verdict impossible sur la phase Nominal : aucune paire poussée" in t and "H-05 :" not in t, t
+    assert "Budget NFR-05" not in t, t
+
+
+def test_async_remedy_confirmed():
+    t = run([phase("Baseline", 72.0, 10, 4320), phase("GetColors", 62.0, 700, 3720, gc=15.5),
+             phase("Nominal", 62.0, 2000, 7440, gc=15.8, core=core(pushed=1200)),
+             phase("Async", 71.8, 30, 12924, gc=1.2, core=core(pushed=1800, cpu=36.0),
+                   latency_frames_p50=3, latency_frames_max=5),
+             {"event": "size", "phase": "Nominal", "mode": "sync", "len_left": 1638400, "len_right": 1638400,
+              "width": 1280, "height": 1280, "texture": [1280, 1280], "current_resolution": [1280, 1280]}])
+    assert "**validée avec réserve**" in t and "Remède : **confirmé**" in t, t
+    assert "latence médiane 3 frames" in t and "Diagnostic Nominal (sync)" in t, t
+    assert "### Core, phase Async" in t and "≤ 25 % d'un cœur" in t, t           # 36 s / 180 s = 20 % -> 25 %
 
 
 def test_lost_pairs_invalidate():
