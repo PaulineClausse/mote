@@ -106,6 +106,24 @@ def main() -> int:
                                            "densification"}, fast["profile_ms"]
         print("ok options rapides, profil :", fast["profile_ms"])
         (Path(d) / "fast.json").unlink()
+
+        # SP-7 : nuage de profondeur au lieu du semis aléatoire ; tout au départ hors ligne, au fil du temps en flux
+        rng = np.random.default_rng(1)
+        n_pts = 300
+        ts = np.sort(rng.uniform(0.0, 1.9, n_pts)).astype(np.float32)          # la session dure 1,95 s
+        np.savez(Path(d) / "init.npz", xyz=rng.normal(0, 0.3, (n_pts, 3)).astype(np.float32) + [0, 0, 2],
+                 rgb=rng.uniform(0, 1, (n_pts, 3)).astype(np.float32), t=ts, voxel=np.float32(0.02))
+        ioff = run(common + ["--out", f"{d}/init_off.json", "--offline", "--max-steps", "200", "--eval-every-it", "100",
+                             "--init-npz", f"{d}/init.npz"])
+        # l'évaluation de l'itération 0 précède le premier semis ; à 100, avant toute densification (500) : tout le nuage
+        assert ioff["curve"][1]["step"] == 100 and ioff["curve"][1]["n_gauss"] == n_pts, ioff["curve"][:2]
+        ist = run(common + ["--out", f"{d}/init_flux.json", "--strategy", "uniform", "--speed", "4", "--tail-s", "0.5",
+                            "--eval-every-s", "0.25", "--margin-s", "0.5", "--init-npz", f"{d}/init.npz"])
+        ng = [c["n_gauss"] for c in ist["curve"]]
+        assert ng[0] < n_pts and max(ng) >= n_pts * 0.9, ng                         # les points arrivent avec le flux
+        print("ok init profondeur : hors ligne", ioff["curve"][1]["n_gauss"], "points au départ ; flux", ng[:4], "...")
+        for f in ("init_off.json", "init_flux.json"):
+            (Path(d) / f).unlink()
         import summarize
         assert summarize.main(["--runs", d]) == 0
         summ = json.loads((Path(d) / "summary.json").read_text(encoding="utf-8"))

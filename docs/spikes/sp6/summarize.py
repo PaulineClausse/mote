@@ -24,6 +24,7 @@ def key_of(r: dict) -> str:
     k += "" if a["reset_every"] == 3000 else f" reset {a['reset_every'] or 'jamais'}"
     k += "" if a.get("ssim", "torchmetrics") == "torchmetrics" else f" ssim {a['ssim']}"
     k += " img GPU" if a.get("images_on_gpu") else ""
+    k += " init profondeur" if a.get("init_npz") not in (None, "None") else ""   # SP-7
     return k
 
 
