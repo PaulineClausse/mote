@@ -30,7 +30,8 @@ def main(argv=None) -> int:
     ap.add_argument("--step-s", type=float, default=10.0)
     a = ap.parse_args(argv)
     for s in (sys.stdout, sys.stderr):
-        s.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(s, "reconfigure"):                   # absent quand la sortie est capturée (tests)
+            s.reconfigure(encoding="utf-8", errors="replace")
     groups: dict[str, list] = {}
     for p in sorted(a.runs.glob("*.json")):
         if p.name == "summary.json":
@@ -51,7 +52,7 @@ def main(argv=None) -> int:
         for k in keys:
             pts = [at(r["curve"], t) for r in groups[k]]
             ps = [p["psnr"] for p in pts if p and p["psnr"] is not None]
-            n_test = n_test or next((p["n_test"] for p in pts if p), None)
+            n_test = max([p["n_test"] for p in pts if p] + ([n_test] if n_test is not None else []), default=None)
             cells.append(f"{statistics.fmean(ps):.2f}" if ps else "-")
         print(f"| {t:.0f} | {n_test if n_test is not None else '-'} | " + " | ".join(cells) + " |")
         t += a.step_s
