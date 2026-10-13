@@ -39,7 +39,19 @@ if (-not $Session) {
     if (-not $Session) { Say "aucune session sur le casque dans $remote (adb devices ?)"; exit 2 }
 }
 $local = "$Work\sessions\$Session"
+# copie incomplète (interrompue, disque plein) : autant de cartes en local que sur le casque, sinon on recopie
+if (Test-Path "$local\left_depth_descriptors.csv") {
+    $nLocal = @(Get-ChildItem "$local\left_depth" -Filter *.raw -ErrorAction SilentlyContinue).Count
+    $nRemote = 0
+    [void][int]::TryParse((((adb shell "ls $remote/$Session/left_depth | wc -l") 2>$null) | Select-Object -Last 1), [ref]$nRemote)
+    if ($nRemote -gt 0 -and $nLocal -lt $nRemote) {
+        Say "copie incomplète ($nLocal cartes gauches en local, $nRemote sur le casque) : nouvelle copie"
+        Remove-Item -LiteralPath $local -Recurse -Force
+    }
+}
 if (-not (Test-Path "$local\left_depth_descriptors.csv")) {
+    $free = [math]::Round((Get-PSDrive $Work.Substring(0, 1)).Free / 1GB, 1)
+    Say "espace libre sur $($Work.Substring(0, 2)) : $free Go (une minute de session pèse 4 à 8 Go)"
     Say "adb pull $Session"
     adb pull "$remote/$Session" "$Work\sessions\"
     if ($LASTEXITCODE -ne 0) { Say "échec de adb pull"; exit 2 }
