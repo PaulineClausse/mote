@@ -113,7 +113,7 @@ def main() -> int:
                 wall(dist, W=32, H=32, tans=(1.0, 1.0, 1.0, 1.0)).tofile(s / f"{eye}_depth" / f"{ts}.raw")
                 rows.append(f"{ts},{1000 + t:.3f},0,1.6,{-dist},0,0,0,1,1,1,1,1,0.1,Infinity,32,32")
             (s / f"{eye}_depth_descriptors.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-        sorted((s / "left_depth").glob("*.raw"))[5].unlink()                        # copie incomplète simulée
+        sorted((s / "left_depth").glob("*.raw"))[50].unlink()                       # copie incomplète simulée (t = 5 s)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = analyze.main(["--wall", str(s), "--out", str(Path(d) / "out")])
