@@ -58,13 +58,17 @@ if (-not (Test-Path $apk) -or (Get-Item $apk).LastWriteTime -lt (Get-Item "$here
             "-executeMethod", "Sp3Build.Build", "-sp3Output", "`"$apk`"", "-logFile", "`"$Work\build.log`"")
         if ($p.ExitCode -eq 0 -and (Test-Path $apk)) { break }
         $transient = Select-String -Path "$Work\build.log" -Pattern "EPERM|EBUSY|could not be added to the local file system" -Quiet
+        # premier import d'un projet neuf en batchmode : des packages (ShaderGraph...) compilés avant d'être complets
+        # échouent (error CS dans Library\PackageCache) ; au lancement suivant, le cache est complet
+        $cs = @(Select-String -Path "$Work\build.log" -Pattern "error CS\d+" | ForEach-Object { $_.Line })
+        if ($cs.Count -gt 0 -and @($cs | Where-Object { $_ -notmatch 'Library[\\/]PackageCache' }).Count -eq 0) { $transient = $true }
         if (-not $transient -or $try -eq 3) {
             Say "ÉCHEC du build (code $($p.ExitCode)). Dernières lignes du journal :"
             Get-Content "$Work\build.log" -Tail 30
             if ($transient) { Say "erreur d'accès répétée dans PackageCache : exclure $Work de l'analyse en temps réel de Windows Defender, fermer Unity Hub et l'éditeur, puis relancer" }
             exit 4
         }
-        Say "erreur d'accès transitoire dans PackageCache, nouvel essai dans 10 s"
+        Say "erreur transitoire (accès à PackageCache ou premier import des packages), nouvel essai dans 10 s"
         Start-Sleep -Seconds 10
     }
 }
