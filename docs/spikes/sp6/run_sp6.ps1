@@ -1,4 +1,4 @@
-# SP-6 : entraînement 3DGS incrémental sur les poses du casque, en une commande, sur le PC NVIDIA de SP-0.
+﻿# SP-6 : entraînement 3DGS incrémental sur les poses du casque, en une commande, sur le PC NVIDIA de SP-0.
 # Outil de spike jetable, pas du code mote. Mode d'emploi : README.md de ce dossier.
 #
 #   powershell -ExecutionPolicy Bypass -File docs\spikes\sp6\run_sp6.ps1

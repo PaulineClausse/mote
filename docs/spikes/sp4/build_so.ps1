@@ -1,4 +1,4 @@
-# SP-4 : reconstruit prebuilt/libsp4core.so (arm64-v8a) depuis sp4core/. Inutile pour la mesure : le .so est versionné.
+﻿# SP-4 : reconstruit prebuilt/libsp4core.so (arm64-v8a) depuis sp4core/. Inutile pour la mesure : le .so est versionné.
 # Prérequis : rustup target add aarch64-linux-android ; cargo install cargo-ndk ; NDK r27c ; cmake ; ninja.
 #
 #   powershell -ExecutionPolicy Bypass -File docs\spikes\sp4\build_so.ps1 -Ndk C:\chemin\court\android-ndk-r27c

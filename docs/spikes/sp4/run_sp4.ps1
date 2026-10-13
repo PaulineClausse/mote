@@ -1,4 +1,4 @@
-# SP-4 : récupère les journaux et le MCAP de la sonde, vérifie le MCAP sur PC, affiche les tableaux de SP-4.md.
+﻿# SP-4 : récupère les journaux et le MCAP de la sonde, vérifie le MCAP sur PC, affiche les tableaux de SP-4.md.
 # Outil de spike jetable, pas du code mote. Mode d'emploi : README.md de ce dossier.
 #
 #   powershell -ExecutionPolicy Bypass -File docs\spikes\sp4\run_sp4.ps1
