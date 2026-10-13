@@ -85,6 +85,9 @@ def main(argv=None) -> int:
     ap.add_argument("--p-recent", type=float, default=0.5)
     ap.add_argument("--downscale", type=int, default=1)
     ap.add_argument("--seed-per-view", type=int, default=500)
+    ap.add_argument("--init-npz", type=Path, default=None,
+                    help="SP-7 : nuage de profondeur (depth_init.py) à la place du semis aléatoire ; hors ligne, tout "
+                         "au départ ; en flux, chaque point quand sa carte de profondeur est arrivée")
     ap.add_argument("--depth-range", type=float, nargs=2, default=(0.3, 4.0), help="profondeur de semis (m)")
     ap.add_argument("--scene-scale", type=float, default=2.0, help="échelle de la scène (m), pour gsplat")
     ap.add_argument("--sh-degree", type=int, default=3)
@@ -177,23 +180,23 @@ def main(argv=None) -> int:
         b2 = F.normalize(a2 - (b1 * a2).sum(-1, keepdim=True) * b1, dim=-1)
         return torch.stack((b1, b2, torch.cross(b1, b2, dim=-1)), dim=-2)
 
+    init = None
+    if a.init_npz is not None:
+        with np.load(a.init_npz) as z:
+            order = np.argsort(z["t"], kind="stable")
+            init = {"xyz": torch.tensor(z["xyz"][order], dtype=torch.float32, device=dev),
+                    "rgb": torch.tensor(z["rgb"][order], dtype=torch.float32, device=dev),
+                    "t": z["t"][order], "voxel": float(z["voxel"]), "next": 0}
+        print(f"[sp6] init profondeur : {len(init['t'])} points ({a.init_npz})", flush=True)
+
     @torch.no_grad()
-    def seed_view(i: int):
-        """Sème des gaussiennes le long de rayons de la vue i, à profondeur aléatoire, couleur du pixel."""
-        n = a.seed_per_view
-        img = imgs_tr[i]
-        u = torch.randint(0, W, (n,)); v = torch.randint(0, H, (n,))
-        rgb = img[v.to(img.device), u.to(img.device)].float().to(dev) / 255.0
-        K = Ks_tr[i]
-        d = torch.empty(n, device=dev).uniform_(*a.depth_range)
-        x = (u.to(dev).float() + 0.5 - K[0, 2]) / K[0, 0] * d
-        y = (v.to(dev).float() + 0.5 - K[1, 2]) / K[1, 1] * d
-        p = c2w_tr[i] @ torch.stack([x, y, d, torch.ones_like(d)])
-        means = p[:3].T
-        scale = torch.log((d / K[0, 0] * (W / math.sqrt(n)) * 0.5).clamp(min=1e-4))
+    def add_gaussians(means: torch.Tensor, rgb: torch.Tensor, log_scale: torch.Tensor):
+        n = len(means)
+        if n == 0:
+            return
         new = {
             "means": means,
-            "scales": scale[:, None].repeat(1, 3),
+            "scales": log_scale[:, None].repeat(1, 3),
             "quats": torch.rand(n, 4, device=dev),
             "opacities": torch.logit(torch.full((n,), 0.1, device=dev)),
             "sh0": ((rgb - 0.5) / C0)[:, None, :],
@@ -206,6 +209,30 @@ def main(argv=None) -> int:
         for k, v_ in sstate.items():
             if isinstance(v_, torch.Tensor):
                 sstate[k] = torch.cat([v_, torch.zeros((n, *v_.shape[1:]), device=v_.device)])
+
+    @torch.no_grad()
+    def seed_view(i: int):
+        """Sème des gaussiennes pour la vue i qui arrive : le nuage de profondeur arrivé jusqu'à son instant (SP-7, tout
+        hors ligne), sinon des rayons de la vue à profondeur aléatoire, couleur du pixel."""
+        if init is not None:
+            t_i = math.inf if a.offline else s.train[i].t
+            j0 = init["next"]
+            j1 = int(np.searchsorted(init["t"], t_i, side="right"))
+            if j1 > j0:
+                add_gaussians(init["xyz"][j0:j1], init["rgb"][j0:j1],
+                              torch.full((j1 - j0,), math.log(init["voxel"]), device=dev))
+                init["next"] = j1
+            return
+        n = a.seed_per_view
+        img = imgs_tr[i]
+        u = torch.randint(0, W, (n,)); v = torch.randint(0, H, (n,))
+        rgb = img[v.to(img.device), u.to(img.device)].float().to(dev) / 255.0
+        K = Ks_tr[i]
+        d = torch.empty(n, device=dev).uniform_(*a.depth_range)
+        x = (u.to(dev).float() + 0.5 - K[0, 2]) / K[0, 0] * d
+        y = (v.to(dev).float() + 0.5 - K[1, 2]) / K[1, 1] * d
+        p = c2w_tr[i] @ torch.stack([x, y, d, torch.ones_like(d)])
+        add_gaussians(p[:3].T, rgb, torch.log((d / K[0, 0] * (W / math.sqrt(n)) * 0.5).clamp(min=1e-4)))
 
     def render(vm: torch.Tensor, K: torch.Tensor, sh_deg: int):
         colors = torch.cat([splats["sh0"], splats["shN"]], 1)
