@@ -77,7 +77,7 @@ def main() -> int:
             assert abs(after) <= 0.2, ln                                              # ≤ 2 mm après décalage
         assert "relectures" in text and "médiane 1,20 ms" in text, text           # 0,4 + 2 x 0,4 ms par carte
         assert "sur 300, un pixel sur 2" in text and "z ≤ 5,0 m" in text, text
-        for f in ("wall_series.png", "scene_views.png", "scene_frame.png", "scene_depth.ply", "sp3_tables.md"):
+        for f in ("wall_series.png", "wall_frames.png", "scene_views.png", "scene_frame.png", "scene_depth.ply", "sp3_tables.md"):
             assert (out / f).exists(), f
     print("ok analyse de bout en bout, référence au mètre")
 
