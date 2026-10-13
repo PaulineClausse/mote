@@ -116,6 +116,7 @@ def wall_section(session: Path, distances: list[float] | None, manual: list[tupl
     pos = np.stack([f["pos"] for f in fr])
     segs = manual or dl.stationary_segments(t, pos, max_speed=0.05, min_s=3.0)
     t0 = t[0]
+    out += [f"Ce que voyait chaque palier, avec les zones d'ajustement : `{_wall_frames(session, segs, out_dir)}`.", ""]
     if len(segs) != len(distances):
         out += [f"**{len(segs)} paliers immobiles détectés pour {len(distances)} distances** : relancer avec "
                 f"`--segments` (secondes depuis le début de la session) en choisissant dans cette liste.", "",
@@ -182,6 +183,38 @@ def _segment_stats(frames: list[dict], ms: list, a: float, b: float, margin: flo
             "normal_w": np.mean(normals, 0) if normals else None, "pos_w": pos}
 
 
+def _wall_frames(session: Path, segs: list[tuple[float, float]], out_dir: Path, zmax: float = 5.0) -> Path:
+    """Une carte gauche au milieu de chaque palier, avec les zones d'ajustement de 15, 25 et 40 % : ce que le plan a
+    réellement vu (mur opaque, fenêtre, objets)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    fr = dl.load_frames(session, "left")
+    t0 = fr[0]["t"]
+    n = max(1, len(segs))
+    fig, axs = plt.subplots(1, n, figsize=(4.2 * n, 4.6), squeeze=False)
+    for ax, (a, b) in zip(axs[0], segs):
+        mid = min(fr, key=lambda f: abs(f["t"] - (a + b) / 2))
+        d = dl.load_raw(session, "left", mid)
+        if d is None:
+            continue
+        z = dl.linearize(d, mid["near"], mid["far"])
+        im = ax.imshow(np.clip(z, 0, zmax), cmap="turbo", vmin=0, vmax=zmax)
+        H, W = z.shape
+        for crop, color in ((0.15, "white"), (0.25, "magenta"), (0.40, "black")):
+            ax.add_patch(Rectangle((W * (1 - crop) / 2, H * (1 - crop) / 2), W * crop, H * crop, fill=False,
+                                   edgecolor=color, lw=1.5, label=f"{int(crop * 100)} %"))
+        ax.set_title(f"palier {a - t0:.0f}-{b - t0:.0f} s")
+        ax.set_xticks([]); ax.set_yticks([])
+    axs[0][0].legend(loc="lower left", fontsize=7)
+    fig.colorbar(im, ax=axs[0].tolist(), label="z (m)", shrink=0.8)
+    path = out_dir / "wall_frames.png"
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+    return path
+
+
 def wall_section_tracking(session: Path, manual: list[tuple[float, float]] | None, out_dir: Path,
                           crop: float) -> list[str]:
     """Sans mètre ruban : la référence est le recul mesuré par le tracking du casque, projeté sur la normale du mur.
@@ -194,6 +227,8 @@ def wall_section_tracking(session: Path, manual: list[tuple[float, float]] | Non
     pos = np.stack([f["pos"] for f in fr])
     t0 = t[0]
     segs = manual or dl.stationary_segments(t, pos, max_speed=0.05, min_s=3.0)
+    frames_png = _wall_frames(session, segs, out_dir)
+    out += [f"Ce que voyait chaque palier, avec les zones d'ajustement : `{frames_png}`.", ""]
     rows = []
     for a, b in segs:
         r = {"a": a - t0, "b": b - t0, **{eye: _segment_stats(f_e, m_e, a, b) for eye, (f_e, m_e) in per_eye.items()}}

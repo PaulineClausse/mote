@@ -1,6 +1,6 @@
 # SP-3 : profondeur sur Quest 3S
 
-Statut : terminé, verdict en écart à la lettre de la règle (§1, §4.2), à accepter · Date : 2026-10-13
+Statut : en révision. Le mur comportait une fenêtre donnant sur l'extérieur, au loin : il faut vérifier ce qu'a vu la zone d'ajustement (§5) avant d'accepter le verdict · Date : 2026-10-13
 · Auteur : claude-agent@mote-session · Tâche : TASK-eea1
 
 Contexte : SPEC-64c5 §9.5 stocke la profondeur brute (`F32_RAW`) et linéarise à l'ingest avec une formule déduite de la
@@ -191,6 +191,10 @@ proche en bas à gauche est raccordé au fond par des valeurs intermédiaires. C
 filtrée par le système, pas la mesure stéréo brute.
 
 ## 5. Lecture et limites
+
+- **Fenêtre dans le mur mesuré** (signalé après coup ; derrière, l'extérieur, au loin). Deux conséquences sont à vérifier :
+  - Le plan ajusté peut être la vitre, ou un reflet de la pièce. Un reflet est fixe dans l'espace : il suivrait lui aussi le recul mesuré par le tracking, avec une pente de 1. La concordance avec le tracking ne l'exclut donc pas. Le décalage d'environ 40 cm entre les distances visées (1, 2 et 3 m) et mesurées (1,39, 2,39 et 3,46 m) va dans ce sens, mais les distances visées étaient approximatives. wall_frames.png (carte de chaque palier, avec les zones de 15, 25 et 40 %) tranche.
+  - La région de S1 en bas à gauche, hors de la trajectoire (§4.4), a un sol à la même hauteur et un plafond vers 2,5 m. Si l'extérieur est loin, ce n'est pas l'extérieur : c'est vraisemblablement un **reflet de la pièce dans les vitres**, c'est-à-dire de la géométrie fantôme. À confirmer ; si c'est le cas, c'est une réserve de plus pour H-02 et SP-7.
 
 - **Une seule scène et un seul mur**, texturé ; la session B (mur uni) n'a pas été faite. Comme la profondeur est
   comblée, un mur uni ne donnera pas de trous : la question devient l'exactitude des valeurs comblées, non mesurée.
