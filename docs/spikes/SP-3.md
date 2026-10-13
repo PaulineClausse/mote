@@ -1,6 +1,6 @@
 # SP-3 : profondeur sur Quest 3S
 
-Statut : en révision. Le mur comportait une fenêtre donnant sur l'extérieur, au loin : il faut vérifier ce qu'a vu la zone d'ajustement (§5) avant d'accepter le verdict · Date : 2026-10-13
+Statut : en révision, verdict retiré (§1). Le premier mur comportait une fenêtre donnant sur l'extérieur, au loin : il faut vérifier ce qu'a vu la zone d'ajustement (§5) avant d'accepter le verdict · Date : 2026-10-13
 · Auteur : claude-agent@mote-session · Tâche : TASK-eea1
 
 Contexte : SPEC-64c5 §9.5 stocke la profondeur brute (`F32_RAW`) et linéarise à l'ingest avec une formule déduite de la
@@ -10,6 +10,8 @@ Quest 3, est-elle exploitable pour initialiser un nuage de points ? SP-7 (initia
 profondeur) et WP-10 en dépendent.
 
 ## 1. Verdict
+
+> **Verdict retiré le 2026-10-13, en attente d'une troisième mesure.** Le premier verdict ci-dessous reposait sur la session `20261013_134325`, où la tête visait une grande fenêtre : le plan mesuré était la vitre, ou un reflet. Une seconde session sur un mur opaque (`20261013_144239`, 4 paliers de 0,58 à 3,77 m, zone de 15 %) donne une profondeur **linéaire** : les écarts à la droite ajustée sont de +0,4, -0,2, -1,0 et +0,8 cm. Mais son **échelle diffère de celle du tracking d'environ 5 %** : distance = 1,053 x recul + 0,574 m. Selon la règle, la formule est donc à corriger (erreur d'échelle). Rien ne dit encore lequel des deux, profondeur ou tracking, porte l'erreur. Une session au mètre posé au sol (marques à 0,5, 1, 2 et 3 m du mur) les départage : l'analyse donne les pentes tracking / mètre et profondeur / mètre.
 
 **Formule de linéarisation : confirmée de 1,4 à 3,5 m**, `z = near / (1 - d)`, avec near = 0,1 m et far infini.
 - Sur un mur, zone centrale de 15 % : erreurs de 0,0, 0,7 et -0,5 %, pente 0,991.
