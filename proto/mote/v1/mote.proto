@@ -1,0 +1,168 @@
+// Schéma mote.v1 : tous les messages stockés (MCAP) ou transmis (TCP), ADR-956c.
+// Source : SPEC-64c5 §9.2, avec les corrections de SP-1 (docs/spikes/SP-1.md §3.4).
+// Évolution (SPEC-64c5 §9.6) : ajout de champs uniquement ; tout changement cassant incrémente schema_version.
+syntax = "proto3";
+package mote.v1;
+
+// Convention des poses telles que fournies par la source (ADR-6ded).
+// Le repère canonique OpenCV n'apparaît pas ici : il n'existe qu'à l'ingest.
+enum PoseConvention {
+  POSE_CONVENTION_UNSPECIFIED = 0;
+  UNITY = 1;     // main gauche, Y haut, avant = +Z
+  OPENXR = 2;    // main droite, Y haut, avant = -Z
+}
+
+// Base de temps du timestamp d'origine.
+enum TimeDomain {
+  TIME_DOMAIN_UNSPECIFIED = 0;
+  MONOTONIC = 1;        // CLOCK_MONOTONIC
+  BOOTTIME = 2;         // CLOCK_BOOTTIME
+  XR_RUNTIME = 3;       // temps du runtime XR / OVR
+  UNKNOWN_DOMAIN = 4;
+  UNIX = 5;             // heure murale (ex. Timestamp MRUK, µs depuis l'epoch Unix d'après SP-1)
+}
+
+message Pose3 {
+  double px = 1; double py = 2; double pz = 3;                 // position (m)
+  double qx = 4; double qy = 5; double qz = 6; double qw = 7;  // rotation
+}
+
+message PoseSample {
+  int64 t_ns = 1;              // instant de validité, horloge mote (SPEC-64c5 §9.3)
+  int64 src_time_ns = 2;       // timestamp d'origine
+  TimeDomain src_domain = 3;
+  PoseConvention convention = 4;
+  Pose3 world_from_hmd = 5;
+  bool predicted = 6;          // pose prédite pour un instant futur
+}
+
+enum ImageCodec {
+  IMAGE_CODEC_UNSPECIFIED = 0;
+  JPEG = 1;
+  RAW_RGBA = 2;                // sessions de référence, local uniquement
+}
+
+message ImageFrame {
+  uint64 pair_id = 1;          // identique pour la gauche et la droite d'une paire
+  int64 t_ns = 2;              // instant de capture, horloge mote
+  int64 src_time_ns = 3;       // timestamp d'origine de la frame
+  TimeDomain src_domain = 4;
+  uint32 width = 5; uint32 height = 6;
+  ImageCodec codec = 7;
+  bytes data = 8;
+  PoseConvention convention = 9;
+  Pose3 world_from_camera = 10;      // pose par frame ; absente si non fournie
+  optional int64 exposure_ns = 11;
+  optional uint32 iso = 12;
+  float blur_score = 13;
+}
+
+enum DistortionModel {
+  DISTORTION_UNSPECIFIED = 0;
+  PINHOLE = 1;
+  OPENCV = 2;                  // k1 k2 p1 p2 (k3 optionnel)
+}
+
+message CameraIntrinsics {
+  uint32 width = 1; uint32 height = 2;
+  double fx = 3; double fy = 4; double cx = 5; double cy = 6;
+  DistortionModel model = 7;
+  repeated double dist = 8;
+  PoseConvention convention = 9;
+  Pose3 hmd_from_camera = 10;  // extrinsèques ; absentes si non fournies
+}
+
+enum DepthEncoding {
+  DEPTH_ENCODING_UNSPECIFIED = 0;
+  F32_RAW = 1;                 // tel que fourni par l'API, non linéarisé
+  U16_MM = 2;                  // linéarisé, millimètres (réservé, SPEC-64c5 §9.5)
+}
+
+// Champs du descripteur Unity EnvironmentDepthFrameDesc (SP-1 §3.4) : createTime, minDepth et maxDepth n'existent
+// que côté Unity, pas dans la structure OpenXR. isValid n'est pas stocké : l'hôte ne pousse que les cartes valides.
+message DepthFrame {
+  int64 t_ns = 1;
+  int64 src_time_ns = 2;       // createTime du descripteur
+  TimeDomain src_domain = 3;
+  uint32 width = 4; uint32 height = 5;
+  DepthEncoding encoding = 6;
+  bytes data = 7;              // non compressé : la compression est celle des chunks MCAP
+  PoseConvention convention = 8;
+  Pose3 world_from_depth = 9;  // pose de création ; la carte doit être reprojetée avec elle, pas avec la pose du rendu
+  float fov_left_tan = 10; float fov_right_tan = 11;
+  float fov_top_tan = 12;  float fov_down_tan = 13;
+  float near_z = 14; float far_z = 15;   // far_z peut valoir +infini
+  float min_depth = 16; float max_depth = 17;
+  optional int64 src_predicted_display_time_ns = 18;  // predictedDisplayTime du descripteur, même base que src_time_ns
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  TRACKING_LOST = 1;
+  TRACKING_RECOVERED = 2;
+  RECENTER = 3;                // l'origine du tracking a changé
+  PAIR_DROPPED_BUSY = 4;       // paire perdue par saturation du core (NFR-02)
+  PAIR_REJECTED_UNSYNC = 5;    // écart gauche/droite supérieur au seuil
+  LIVE_DROPPED = 6;            // message retiré du flux live (reste dans le fichier)
+  NET_DISCONNECTED = 7;
+  NET_CONNECTED = 8;
+}
+
+message Event {
+  int64 t_ns = 1;
+  EventType type = 2;
+  string detail = 3;
+}
+
+message Stats {
+  int64 t_ns = 1;
+  uint64 pairs_pushed = 2; uint64 pairs_kept = 3; uint64 pairs_dropped = 4;
+  uint64 bytes_written = 5; uint64 bytes_sent = 6;
+  float net_mbps = 7; float encode_ms_avg = 8; float live_queue_fill = 9;
+}
+
+message SessionInfo {
+  uint32 schema_version = 1;
+  string session_id = 2;
+  int64 start_unix_ns = 3;
+  int64 start_t_ns = 4;        // même instant sur l'horloge mote
+  string device_model = 5;
+  string os_build = 6;
+  string sdk_versions = 7;     // JSON libre
+  string host_kind = 8;        // "unity"
+  string core_version = 9;
+  string tracking_space = 10;  // espace de référence des poses
+  string config_json = 11;
+}
+
+message ChannelEnd { string channel = 1; uint64 last_seq = 2; }
+message SessionEnd { repeated ChannelEnd channels = 1; }
+
+// ---- Transport (ADR-006). Non stocké dans le MCAP. ----
+
+message Hello { string session_id = 1; string auth_token = 2; uint32 schema_version = 3; }
+
+message Envelope {             // casque -> PC
+  string channel = 1;
+  uint64 seq = 2;
+  oneof body {
+    Hello hello = 10;
+    SessionInfo session_info = 11;
+    ImageFrame image = 12;
+    CameraIntrinsics intrinsics = 13;
+    PoseSample pose = 14;
+    DepthFrame depth = 15;
+    Event event = 16;
+    Stats stats = 17;
+    SessionEnd session_end = 18;
+  }
+}
+
+message ResendRequest { string channel = 1; uint64 first_seq = 2; uint64 last_seq = 3; }
+
+message Control {              // PC -> casque
+  oneof body {
+    ResendRequest resend = 1;
+    // réservé v1.5 : carte de couverture issue de l'entraînement
+  }
+}
