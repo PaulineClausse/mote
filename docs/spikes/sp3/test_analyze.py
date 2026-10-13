@@ -100,6 +100,28 @@ def main() -> int:
         for ln in rows:
             assert abs(float(ln.split("|")[6].strip().replace(",", "."))) <= 0.2, ln       # erreur ≤ 2 mm
     print("ok analyse de bout en bout, référence au tracking")
+
+    # aucune tête immobile (recul continu) : pas de plantage, un relevé pour choisir les paliers, les figures
+    with tempfile.TemporaryDirectory() as d:
+        s = Path(d) / "20261014_110000"
+        for eye in ("left", "right"):
+            (s / f"{eye}_depth").mkdir(parents=True)
+            rows = [HEADER]
+            for k, t in enumerate(np.arange(0.0, 12.0, 0.1)):
+                dist = 0.5 + 0.2 * t
+                ts = 1791367700000 + k * 100
+                wall(dist, W=32, H=32, tans=(1.0, 1.0, 1.0, 1.0)).tofile(s / f"{eye}_depth" / f"{ts}.raw")
+                rows.append(f"{ts},{1000 + t:.3f},0,1.6,{-dist},0,0,0,1,1,1,1,1,0.1,Infinity,32,32")
+            (s / f"{eye}_depth_descriptors.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = analyze.main(["--wall", str(s), "--out", str(Path(d) / "out")])
+        text = buf.getvalue()
+        assert rc == 0, text
+        assert "**0 palier(s) exploitable(s), il en faut 3**" in text and "| t (s) | distance au plan (m)" in text, text
+        assert "| 0 | 0,69 |" in text, text                                        # médiane sur 0-1,9 s : 0,5 + 0,2 x 0,95
+        assert (Path(d) / "out" / "wall_frames.png").exists() and (Path(d) / "out" / "wall_series.png").exists()
+    print("ok analyse sans palier immobile")
     return 0
 
 
