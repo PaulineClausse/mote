@@ -51,7 +51,9 @@ if ($LASTEXITCODE -ne 0) {
     Say "installation de torch 2.1.2 CUDA 11.8, nerfstudio 1.1.5, gsplat 1.4.0, LPIPS (environ 3 Go, une fois)"
     # gsplat précompilé pour torch 2.1 / CUDA 11.8 / Python 3.10 : ni CUDA Toolkit ni Visual Studio à installer
     $gsplat = "https://github.com/nerfstudio-project/gsplat/releases/download/v1.4.0/gsplat-1.4.0%2Bpt21cu118-cp310-cp310-win_amd64.whl"
-    & $uv pip install --python $py --extra-index-url https://download.pytorch.org/whl/cu118 `
+    # --reinstall : on n'arrive ici que si les imports échouent ; une installation interrompue peut laisser des
+    # paquets déclarés installés mais sans leurs fichiers, que uv tiendrait pour satisfaits
+    & $uv pip install --python $py --reinstall --extra-index-url https://download.pytorch.org/whl/cu118 `
         --index-strategy unsafe-best-match "torch==2.1.2+cu118" "torchvision==0.16.2+cu118" `
         "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "setuptools<70" "gsplat @ $gsplat"
     if ($LASTEXITCODE -ne 0) { throw "installation de l'environnement d'entrainement echouee" }
