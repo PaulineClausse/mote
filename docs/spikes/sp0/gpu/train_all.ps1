@@ -46,8 +46,7 @@ if (-not (Test-Path $py)) {
     & $uv venv --python 3.10 "$Tools\venv-train"
     if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
 }
-# torch 2.1 importe pkg_resources.packaging (setuptools < 70) au chargement du backend CUDA de gsplat ; uv venv n'a pas setuptools
-& $py -c "import nerfstudio, gsplat, lpips, torch; from pkg_resources import packaging; assert torch.version.cuda" 2>$null
+& $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Say "installation de torch 2.1.2 CUDA 11.8, nerfstudio 1.1.5, gsplat 1.4.0, LPIPS (environ 3 Go, une fois)"
     # gsplat précompilé pour torch 2.1 / CUDA 11.8 / Python 3.10 : ni CUDA Toolkit ni Visual Studio à installer
@@ -56,6 +55,14 @@ if ($LASTEXITCODE -ne 0) {
         --index-strategy unsafe-best-match "torch==2.1.2+cu118" "torchvision==0.16.2+cu118" `
         "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "setuptools<70" "gsplat @ $gsplat"
     if ($LASTEXITCODE -ne 0) { throw "installation de l'environnement d'entrainement echouee" }
+}
+# torch 2.1 importe pkg_resources.packaging (setuptools < 70) au chargement du backend CUDA de gsplat ; uv venv n'a pas
+# setuptools. Ajouté seul à un venv existant, sans réinstaller le reste (un .exe du venv peut être verrouillé).
+& $py -c "from pkg_resources import packaging" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Say "ajout de setuptools<70 au venv d'entrainement"
+    & $uv pip install --python $py "setuptools<70"
+    if ($LASTEXITCODE -ne 0) { throw "installation de setuptools<70 echouee" }
 }
 if (-not $DryRun) {
     & $py -c "import torch,sys; ok=torch.cuda.is_available(); print('[sp0-gpu] torch', torch.__version__, 'CUDA', ok, torch.cuda.get_device_name(0) if ok else ''); sys.exit(0 if ok else 1)"
