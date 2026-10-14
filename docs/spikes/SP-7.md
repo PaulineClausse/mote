@@ -115,6 +115,15 @@ gardent un flou de l'ordre de quelques centimètres, à peine plus que le voxel.
 Plus de la moitié des points rétroprojetés tombent hors du champ de la vue d'entraînement la plus proche et n'ont pas
 de couleur : ils sont écartés. La profondeur voit donc plus large que ce que le nuage retient.
 
+Ce que montrent les vues :
+- **La pièce scannée est cohérente.** Vue de dessus, c'est un rectangle d'environ 5 x 4 m aux murs droits, et la
+  trajectoire est dedans. Vue de face, le sol et le plafond sont plats, à environ 2,9 m l'un de l'autre, et la
+  trajectoire passe à hauteur de tête. L'alignement tient donc à l'échelle de la pièce.
+- **Une seconde zone, plus diffuse, prolonge la scène d'environ 5 m au-delà du mur des fenêtres**, avec un contour qui
+  rappelle celui de la pièce. C'est vraisemblablement le reflet de la pièce dans les vitres, que SP-3 avait relevé
+  (§4.4) et que le nuage ne filtre pas (§5). Ces points sèment des gaussiennes là où aucune vue n'observe de surface.
+  Ils peuvent peser sur les vues de test tournées vers les fenêtres, et sur le nombre de gaussiennes (§4.2).
+
 ### 4.2 Flux (aperçu live)
 
 Trois graines par initialisation, `uniform`, demi-résolution, flux de 122,5 s puis 60 s d'entraînement sans nouvelle
