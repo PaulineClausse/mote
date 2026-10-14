@@ -40,20 +40,28 @@ if (-not (Test-Path $uv)) {
     Say "installation de uv"
     powershell -NoProfile -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
 }
-$py = "$Tools\venv-train\Scripts\python.exe"
-if (-not (Test-Path $py)) {
-    Say "creation du venv d'entrainement Python 3.10 dans $Tools\venv-train"
-    & $uv venv --python 3.10 "$Tools\venv-train"
-    if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
+$venv = "$Tools\venv-train"
+$py = "$venv\Scripts\python.exe"
+$ready = $false
+if ((Test-Path $py) -and (Test-Path "$venv\pyvenv.cfg")) {
+    & $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
+    $ready = ($LASTEXITCODE -eq 0)
 }
-& $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
-if ($LASTEXITCODE -ne 0) {
+if (-not $ready) {
+    # Absent, ou cassé (installation interrompue : paquets déclarés sans leurs fichiers, pyvenv.cfg perdu, et uv
+    # retombe alors sur le Python de base) : on le recrée de zéro plutôt que de le réparer.
+    if (Test-Path $venv) {
+        Say "venv d'entrainement incomplet : suppression de $venv"
+        try { Remove-Item -Recurse -Force $venv -ErrorAction Stop }
+        catch { throw "suppression de $venv impossible (un fichier est ouvert : fermer les PowerShell et Python qui l'utilisent, ou redemarrer) : $_" }
+    }
+    Say "creation du venv d'entrainement Python 3.10 dans $venv"
+    & $uv venv --python 3.10 $venv
+    if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
     Say "installation de torch 2.1.2 CUDA 11.8, nerfstudio 1.1.5, gsplat 1.4.0, LPIPS (environ 3 Go, une fois)"
     # gsplat précompilé pour torch 2.1 / CUDA 11.8 / Python 3.10 : ni CUDA Toolkit ni Visual Studio à installer
     $gsplat = "https://github.com/nerfstudio-project/gsplat/releases/download/v1.4.0/gsplat-1.4.0%2Bpt21cu118-cp310-cp310-win_amd64.whl"
-    # --reinstall : on n'arrive ici que si les imports échouent ; une installation interrompue peut laisser des
-    # paquets déclarés installés mais sans leurs fichiers, que uv tiendrait pour satisfaits
-    & $uv pip install --python $py --reinstall --extra-index-url https://download.pytorch.org/whl/cu118 `
+    & $uv pip install --python $py --extra-index-url https://download.pytorch.org/whl/cu118 `
         --index-strategy unsafe-best-match "torch==2.1.2+cu118" "torchvision==0.16.2+cu118" `
         "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "setuptools<70" "gsplat @ $gsplat"
     if ($LASTEXITCODE -ne 0) { throw "installation de l'environnement d'entrainement echouee" }
