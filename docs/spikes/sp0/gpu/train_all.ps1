@@ -17,6 +17,7 @@ param(
     [int]$Iterations = 30000,               # figé par SP-0 (PROTOCOL.md §7)
     [string[]]$Only,
     [switch]$SkipColmap,                    # ne pas relancer run_all.ps1
+    [switch]$NsDataOnly,                    # jeu commun seulement, sans bench : ce que lisent SP-6 et SP-7
     [switch]$DryRun
 )
 $ErrorActionPreference = "Continue"   # codes de sortie verifies a la main : PS 5.1 transforme le stderr natif en erreurs
@@ -45,14 +46,15 @@ if (-not (Test-Path $py)) {
     & $uv venv --python 3.10 "$Tools\venv-train"
     if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
 }
-& $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
+# torch 2.1 importe pkg_resources.packaging (setuptools < 70) au chargement du backend CUDA de gsplat ; uv venv n'a pas setuptools
+& $py -c "import nerfstudio, gsplat, lpips, torch; from pkg_resources import packaging; assert torch.version.cuda" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Say "installation de torch 2.1.2 CUDA 11.8, nerfstudio 1.1.5, gsplat 1.4.0, LPIPS (environ 3 Go, une fois)"
     # gsplat précompilé pour torch 2.1 / CUDA 11.8 / Python 3.10 : ni CUDA Toolkit ni Visual Studio à installer
     $gsplat = "https://github.com/nerfstudio-project/gsplat/releases/download/v1.4.0/gsplat-1.4.0%2Bpt21cu118-cp310-cp310-win_amd64.whl"
     & $uv pip install --python $py --extra-index-url https://download.pytorch.org/whl/cu118 `
         --index-strategy unsafe-best-match "torch==2.1.2+cu118" "torchvision==0.16.2+cu118" `
-        "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "gsplat @ $gsplat"
+        "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "setuptools<70" "gsplat @ $gsplat"
     if ($LASTEXITCODE -ne 0) { throw "installation de l'environnement d'entrainement echouee" }
 }
 if (-not $DryRun) {
@@ -65,5 +67,6 @@ $a = @("$PSScriptRoot\train.py", "--work", $Work, "--iterations", "$Iterations",
 $a += @("--variants") + $Variants
 if ($Only) { $a += @("--only") + $Only }
 if ($DryRun) { $a += "--dry-run" }
+if ($NsDataOnly) { $a += "--nsdata-only" }
 & $py @a
 exit $LASTEXITCODE

@@ -120,7 +120,8 @@ Sorties en plus, par session : `bench.json` (tout, dont les seuils proposés pou
 Plus `work\bench_all.json` pour toutes les sessions.
 
 Options : `-Seeds 0,1,2`, `-Variants A,AREF`, `-Iterations 30000`, `-Only S1`, `-SkipColmap`, `-DryRun`. Un
-entraînement interrompu est refait depuis le début, pour garder un temps complet.
+entraînement interrompu est refait depuis le début, pour garder un temps complet. `-NsDataOnly` s'arrête après le jeu
+commun, sans entraîner : c'est ce que lisent SP-6 et SP-7.
 
 Deux écarts entre A et AREF tiennent à la méthode et non au suivi du casque. Le REF a ses propres intrinsèques
 (OPENCV, estimées par COLMAP), alors que A utilise les intrinsèques MRUK. Pour AREF, nerfstudio redresse les images

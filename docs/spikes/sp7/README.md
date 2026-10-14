@@ -7,6 +7,18 @@ Sur le PC NVIDIA, **sans casque**. Prérequis, déjà en place depuis SP-0 et SP
 - son jeu commun dans `$HOME\sp0\work\20261007_120820\nsdata` ;
 - le venv d'entraînement `$HOME\sp0\tools\venv-train`.
 
+S'ils manquent, les refaire depuis le casque (S1 y est encore, dans les fichiers de QuestRealityCapture), environ une
+heure, dont le SfM COLMAP sur GPU :
+
+```powershell
+New-Item -ItemType Directory -Force $HOME\sp0\sessions | Out-Null
+adb pull /sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261007_120820 $HOME\sp0\sessions\
+powershell -ExecutionPolicy Bypass -File docs\spikes\sp0\gpu\train_all.ps1 -Only 20261007_120820 -NsDataOnly
+```
+
+Le jeu commun refait peut différer de quelques images de celui de SP-0 et SP-6, si le nouveau REF recale un autre
+ensemble d'images : SP-7 compare ses deux initialisations sur le même jeu, c'est ce qui compte.
+
 ## Une commande
 
 ```powershell
