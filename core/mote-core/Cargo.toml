@@ -1,0 +1,17 @@
+[package]
+name = "mote-core"
+description = "Sélection des paires, files et orchestration du core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mote-codec.workspace = true
+mote-mcap.workspace = true
+mote-net.workspace = true
+mote-proto.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

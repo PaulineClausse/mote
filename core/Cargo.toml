@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["mote-capi", "mote-codec", "mote-core", "mote-mcap", "mote-net"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+mote-codec = { path = "mote-codec" }
+mote-core = { path = "mote-core" }
+mote-mcap = { path = "mote-mcap" }
+mote-net = { path = "mote-net" }
+mote-proto = { path = "../proto/rust" }
+
+[profile.release]
+debug = false
+lto = "thin"

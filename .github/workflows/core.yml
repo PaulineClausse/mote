@@ -1,0 +1,79 @@
+# Core Rust (WP-02) : tests sur PC (Linux, Windows), libmote.so arm64-v8a par cargo-ndk, mote.h à jour.
+name: core
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  CORE_CRATES: -p mote-capi -p mote-core -p mote-codec -p mote-mcap -p mote-net
+
+jobs:
+  host:
+    name: tests ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - uses: astral-sh/setup-uv@v6
+      - run: cargo fmt --check $CORE_CRATES
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: build hôte (commande documentée)
+        run: uv run build.py --host
+      - name: mote.h versionné identique au header généré
+        run: git diff --exit-code -- mote-capi/include/mote.h
+      - name: test C du header et de la bibliothèque
+        if: runner.os == 'Linux'
+        run: |
+          cc -std=c99 -Wall -Werror -Idist/include mote-capi/tests/smoke.c -Ldist/host -lmote -o smoke
+          LD_LIBRARY_PATH=dist/host ./smoke
+
+  android:
+    name: libmote.so arm64-v8a
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - uses: astral-sh/setup-uv@v6
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+      - run: cargo install cargo-ndk --locked
+      - name: build arm64-v8a (commande documentée)
+        run: uv run build.py --android --ndk "${{ steps.ndk.outputs.ndk-path }}"
+      - name: vérifie l'ELF et ses dépendances
+        run: |
+          so=dist/android/arm64-v8a/libmote.so
+          file "$so" | tee /dev/stderr | grep -q "ARM aarch64"
+          readelf -d "$so" | grep NEEDED
+          readelf --dyn-syms "$so" | grep -q " mote_now_ns$"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmote-arm64-v8a
+          path: |
+            core/dist/android/arm64-v8a/libmote.so
+            core/dist/include/mote.h
