@@ -5,13 +5,17 @@ slug: aper-u-live-initialis-par-la-profondeur-du-casqu
 title: Aperçu live initialisé par la profondeur du casque (option B)
 created: 2026-10-15T06:51:19Z
 author: claude-agent@mote-session
-status: proposed
+status: accepted
 scope:
   - pc/mote/train/**
 constraint: |
   L'entraînement live sème ses gaussiennes à partir des cartes de profondeur du casque rétroprojetées, au fil de leur arrivée, et ne recourt au semis aléatoire qu'en l'absence de profondeur.
+ratified: ffa3224bdae7
+verified:
+  - by: seanl@sean-laptop
+    at: 2026-10-15T06:53:30Z
 schema: 4
-version: 1
+version: 2
 ---
 
 Contexte : SP-7 (docs/spikes/SP-7.md, 2026-10-14), sur S1 rejouée en flux, `uniform` en demi-résolution, 3 graines.
