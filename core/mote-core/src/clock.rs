@@ -2,6 +2,7 @@
 
 /// Temps courant de l'horloge mote, en nanosecondes.
 #[cfg(unix)]
+#[allow(clippy::unnecessary_cast)] // time_t et c_long ne font 64 bits que sur les cibles 64 bits
 pub fn now_ns() -> i64 {
     let mut ts = libc::timespec {
         tv_sec: 0,
