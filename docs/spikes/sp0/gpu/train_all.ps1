@@ -17,6 +17,7 @@ param(
     [int]$Iterations = 30000,               # figé par SP-0 (PROTOCOL.md §7)
     [string[]]$Only,
     [switch]$SkipColmap,                    # ne pas relancer run_all.ps1
+    [switch]$NsDataOnly,                    # jeu commun seulement, sans bench : ce que lisent SP-6 et SP-7
     [switch]$DryRun
 )
 $ErrorActionPreference = "Continue"   # codes de sortie verifies a la main : PS 5.1 transforme le stderr natif en erreurs
@@ -39,21 +40,39 @@ if (-not (Test-Path $uv)) {
     Say "installation de uv"
     powershell -NoProfile -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
 }
-$py = "$Tools\venv-train\Scripts\python.exe"
-if (-not (Test-Path $py)) {
-    Say "creation du venv d'entrainement Python 3.10 dans $Tools\venv-train"
-    & $uv venv --python 3.10 "$Tools\venv-train"
-    if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
+$venv = "$Tools\venv-train"
+$py = "$venv\Scripts\python.exe"
+$ready = $false
+if ((Test-Path $py) -and (Test-Path "$venv\pyvenv.cfg")) {
+    & $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
+    $ready = ($LASTEXITCODE -eq 0)
 }
-& $py -c "import nerfstudio, gsplat, lpips, torch; assert torch.version.cuda" 2>$null
-if ($LASTEXITCODE -ne 0) {
+if (-not $ready) {
+    # Absent, ou cassé (installation interrompue : paquets déclarés sans leurs fichiers, pyvenv.cfg perdu, et uv
+    # retombe alors sur le Python de base) : on le recrée de zéro plutôt que de le réparer.
+    if (Test-Path $venv) {
+        Say "venv d'entrainement incomplet : suppression de $venv"
+        try { Remove-Item -Recurse -Force $venv -ErrorAction Stop }
+        catch { throw "suppression de $venv impossible (un fichier est ouvert : fermer les PowerShell et Python qui l'utilisent, ou redemarrer) : $_" }
+    }
+    Say "creation du venv d'entrainement Python 3.10 dans $venv"
+    & $uv venv --python 3.10 $venv
+    if ($LASTEXITCODE -ne 0) { throw "uv venv a echoue" }
     Say "installation de torch 2.1.2 CUDA 11.8, nerfstudio 1.1.5, gsplat 1.4.0, LPIPS (environ 3 Go, une fois)"
     # gsplat précompilé pour torch 2.1 / CUDA 11.8 / Python 3.10 : ni CUDA Toolkit ni Visual Studio à installer
     $gsplat = "https://github.com/nerfstudio-project/gsplat/releases/download/v1.4.0/gsplat-1.4.0%2Bpt21cu118-cp310-cp310-win_amd64.whl"
     & $uv pip install --python $py --extra-index-url https://download.pytorch.org/whl/cu118 `
         --index-strategy unsafe-best-match "torch==2.1.2+cu118" "torchvision==0.16.2+cu118" `
-        "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "gsplat @ $gsplat"
+        "nerfstudio==1.1.5" "lpips==0.1.4" "numpy<2" "setuptools<70" "gsplat @ $gsplat"
     if ($LASTEXITCODE -ne 0) { throw "installation de l'environnement d'entrainement echouee" }
+}
+# torch 2.1 importe pkg_resources.packaging (setuptools < 70) au chargement du backend CUDA de gsplat ; uv venv n'a pas
+# setuptools. Ajouté seul à un venv existant, sans réinstaller le reste (un .exe du venv peut être verrouillé).
+& $py -c "from pkg_resources import packaging" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Say "ajout de setuptools<70 au venv d'entrainement"
+    & $uv pip install --python $py "setuptools<70"
+    if ($LASTEXITCODE -ne 0) { throw "installation de setuptools<70 echouee" }
 }
 if (-not $DryRun) {
     & $py -c "import torch,sys; ok=torch.cuda.is_available(); print('[sp0-gpu] torch', torch.__version__, 'CUDA', ok, torch.cuda.get_device_name(0) if ok else ''); sys.exit(0 if ok else 1)"
@@ -65,5 +84,6 @@ $a = @("$PSScriptRoot\train.py", "--work", $Work, "--iterations", "$Iterations",
 $a += @("--variants") + $Variants
 if ($Only) { $a += @("--only") + $Only }
 if ($DryRun) { $a += "--dry-run" }
+if ($NsDataOnly) { $a += "--nsdata-only" }
 & $py @a
 exit $LASTEXITCODE

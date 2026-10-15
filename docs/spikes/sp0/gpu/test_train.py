@@ -114,6 +114,18 @@ def test_dry_run_commands():
         assert "ns-render" not in out, out
 
 
+def test_nsdata_only():
+    """--nsdata-only écrit le jeu commun (pour SP-6 et SP-7) sans lancer d'entraînement."""
+    with tempfile.TemporaryDirectory() as d:
+        s = session(Path(d))
+        p = subprocess.run([sys.executable, str(HERE / "train.py"), "--work", d, "--period", "10", "--block", "2",
+                            "--nsdata-only"], capture_output=True, text=True, encoding="utf-8")
+        out = p.stdout + p.stderr
+        assert p.returncode == 0, out
+        assert (s / "nsdata" / "train_list.txt").exists(), out
+        assert "ns-train" not in out and not (Path(d) / "bench_all.json").exists(), out
+
+
 def test_split_side_by_side():
     try:
         from PIL import Image
@@ -134,7 +146,7 @@ def test_split_side_by_side():
 
 if __name__ == "__main__":
     tests = [test_pair_keys_by_timestamp, test_prepare_common_set, test_bench_rule, test_psnr_curve,
-             test_dry_run_commands, test_split_side_by_side]
+             test_dry_run_commands, test_nsdata_only, test_split_side_by_side]
     for t in tests:
         t()
         print("ok", t.__name__)

@@ -306,6 +306,8 @@ def main(argv=None) -> int:
     ap.add_argument("--period", type=int, default=40)
     ap.add_argument("--only", nargs="*", default=None)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--nsdata-only", action="store_true",
+                    help="écrire seulement le jeu commun (nsdata), sans entraîner : ce que lisent SP-6 et SP-7")
     a = ap.parse_args(argv)
     pipeline.DRY = a.dry_run
     for stream in (sys.stdout, sys.stderr):
@@ -326,6 +328,9 @@ def main(argv=None) -> int:
         try:
             images, csv = sources(sdir)
             s.step("nsdata", lambda: prepare(sdir, images, csv, a.block, a.period))
+            if a.nsdata_only:
+                say(f"{sdir.name} : jeu commun dans {sdir / 'nsdata'}")
+                continue
             runs = {v: {} for v in a.variants}
             for seed in a.seeds:                              # graine par graine : A et AREF avancent ensemble
                 for v in a.variants:
