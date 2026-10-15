@@ -1,7 +1,7 @@
 # SP-7 : initialisation par la profondeur du casque pour l'aperçu live
 
-Statut : flux mesuré le 2026-10-14, hors ligne en attente. Méthode et règle fixées avant les mesures (2026-10-13) ·
-Auteur : claude-agent@mote-session · Tâche : TASK-697a
+Statut : terminé. Méthode et règle fixées avant les mesures (2026-10-13), mesures du 2026-10-14 · Auteur :
+claude-agent@mote-session · Tâche : TASK-697a
 
 Contexte : option B de SPEC 11.3. Au lieu des gaussiennes semées à profondeur aléatoire (SP-6), on part de la
 géométrie mesurée par le casque, ce qui devrait raccourcir la convergence de l'aperçu live.
@@ -14,7 +14,8 @@ géométrie mesurée par le casque, ce qui devrait raccourcir la convergence de 
 
 Nuage d'initialisation : 300 000 points (le plafond), tirés de 962 cartes de profondeur ; alignement sur 802 paires,
 échelle 1,019, résidu médian 7,1 cm (p95 11,6 cm). Vues : `sp7/figures/init_views.png`.
-Hors ligne, 30 000 itérations : 20 dB à ___ s (profondeur) contre ___ s (aléatoire) ; PSNR final ___ contre ___ dB.
+Hors ligne, 30 000 itérations, 3 graines : 20 dB à 9,2 s (profondeur) contre 22,8 s (aléatoire), les deux dès la
+première évaluation (itération 200) ; PSNR final 28,20 ± 0,37 contre 24,87 ± 0,97 dB (+3,33).
 Flux (SP-6, `uniform` en demi-résolution, 3 graines) : PSNR moyen du flux 26,58 contre 23,42 dB (+3,17) ; 20 dB à
 20,0 contre 11,7 s ; PSNR final 27,76 contre 23,61 dB (+4,15) ; fin du flux 19,46 contre 22,37 dB (-2,91).
 
@@ -31,6 +32,10 @@ Recommandation pour l'option B en live :
 - **Proposition** : l'option B mérite d'être retenue comme candidate pour WP-15, sous deux conditions à traiter
   là-bas. D'abord, le creux du démarrage. Ensuite, le coût du flux de profondeur, 33 Mbit/s avant zstd (SP-3).
   La décision revient à une ADR, pas à ce spike, puisque la règle fixée donne « neutre ».
+- **Hors ligne**, hors du champ de la règle : +3,33 dB de PSNR final à 30 000 itérations. L'option B est un bon
+  candidat pour initialiser l'entraînement final (WP-18), où le démarrage ne compte pas.
+- **À filtrer si l'option B est retenue** : le reflet de la pièce dans les vitres, qui sème des gaussiennes au-delà
+  du mur des fenêtres (§4.1).
 
 ## 2. Règle, écrite avant de regarder les chiffres
 
@@ -169,7 +174,25 @@ Dès 25 s, la profondeur passe devant, et l'écart atteint 4 à 5 dB vers 120 s.
 
 ### 4.3 Hors ligne, 30 000 itérations
 
-___
+Trois graines par initialisation, pleine résolution, tout le nuage semé au départ, évaluation de tout le hold-out
+toutes les 200 itérations. Sortie de `compare.py` :
+
+| Initialisation | 20 dB (s) | 20 dB (it.) | PSNR final (dB) | it/s | gaussiennes finales |
+|---|---|---|---|---|---|
+| aléatoire | 22,8 ± 0,2 | 200 ± 0 | 24,87 ± 0,97 | 12,9 ± 0,2 | 1 441 669 ± 66 845 |
+| profondeur | 9,2 ± 0,1 | 200 ± 0 | 28,20 ± 0,37 | 12,4 ± 0,1 | 1 865 306 ± 33 637 |
+
+- **Qualité finale : +3,33 dB avec la profondeur**, et un écart-type deux à trois fois plus faible entre graines. C'est
+  le même ordre de gain qu'en flux (+4,15 dB).
+- **Temps jusqu'à 20 dB : à lire avec prudence.** Les deux initialisations dépassent 20 dB dès la première
+  évaluation, à l'itération 200 : la mesure ne départage pas la convergence en itérations. L'écart de temps mesure le
+  coût de ces 200 premières itérations et de l'évaluation initiale, vraisemblablement plus élevé avec le semis
+  aléatoire de toutes les vues au départ ; les JSON ne le détaillent pas.
+- **Coût** : 29 % de gaussiennes en plus, pour une vitesse presque égale (12,4 contre 12,9 it/s).
+
+Ces chiffres sont rapportés pour information et pour la passe finale (WP-18). Selon §2, ils ne changent pas la
+recommandation pour le live. Ils plaident en revanche pour l'option B en initialisation de l'entraînement final, où
+le démarrage ne compte pas.
 
 ## 5. Lecture et limites
 
