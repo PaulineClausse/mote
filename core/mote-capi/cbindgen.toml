@@ -1,0 +1,16 @@
+language = "C"
+include_guard = "MOTE_H"
+include_version = false
+sys_includes = ["stdint.h"]
+no_includes = true
+cpp_compat = true
+autogen_warning = "/* Généré par cbindgen depuis core/mote-capi (build.rs). Ne pas modifier : changer le Rust et reconstruire. */"
+documentation_style = "c99"
+usize_is_size_t = true
+
+[export]
+prefix = ""
+
+[enum]
+rename_variants = "ScreamingSnakeCase"
+prefix_with_name = false
