@@ -1,0 +1,7 @@
+# Lourds ou régénérables par outils/ingest.py : gardés en local, pas dans git
+source.pdf
+mineru.json
+images/
+inbox/*
+!inbox/.gitkeep
+__pycache__/
