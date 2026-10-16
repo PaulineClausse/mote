@@ -3,12 +3,15 @@
 //! derrière les files par les traits de `stages`.
 
 pub mod clock;
+mod mcap_writer;
 mod session;
 mod stages;
 mod types;
 
+pub use mcap_writer::{session_meta, McapWriter, SessionMeta};
 pub use session::{
-    Core, Error, Result, Stats, ENCODE_QUEUE_CAPACITY, EVENT_QUEUE_CAPACITY, WRITE_QUEUE_CAPACITY,
+    Core, Error, Result, ENCODE_QUEUE_CAPACITY, EVENT_QUEUE_CAPACITY, FLUSH_PERIOD,
+    WRITE_QUEUE_CAPACITY,
 };
 pub use stages::{Encoder, NullWriter, RawEncoder, Writer};
 pub use types::*;

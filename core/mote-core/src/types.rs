@@ -62,6 +62,8 @@ pub struct Frame {
 /// Paire stéréo retenue, en attente d'encodage.
 #[derive(Clone, Debug)]
 pub struct Pair {
+    /// Identique pour la gauche et la droite (`ImageFrame.pair_id`).
+    pub id: u64,
     pub left: Frame,
     pub right: Frame,
 }
@@ -76,6 +78,7 @@ pub struct EncodedFrame {
 
 #[derive(Clone, Debug)]
 pub struct EncodedPair {
+    pub id: u64,
     pub left: EncodedFrame,
     pub right: EncodedFrame,
 }
@@ -89,6 +92,7 @@ impl EncodedPair {
             source: f,
         };
         EncodedPair {
+            id: pair.id,
             left: wrap(pair.left),
             right: wrap(pair.right),
         }
@@ -152,4 +156,20 @@ pub enum Record {
     Depth(Depth),
     Event(Event),
     Pair(EncodedPair),
+    Stats(Stats),
+}
+
+/// Compteurs de supervision (`mote_get_stats`, canal `/stats`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Stats {
+    pub t_ns: i64,
+    pub pairs_pushed: u64,
+    pub pairs_kept: u64,
+    pub pairs_dropped: u64,
+    pub bytes_written: u64,
+    pub bytes_sent: u64,
+    pub net_mbps: f32,
+    pub encode_ms_avg: f32,
+    pub live_queue_fill: f32,
+    pub net_connected: bool,
 }

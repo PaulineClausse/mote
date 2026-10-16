@@ -12,6 +12,7 @@ mote-codec.workspace = true
 mote-mcap.workspace = true
 mote-net.workspace = true
 mote-proto.workspace = true
+serde_json = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
