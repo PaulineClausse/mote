@@ -2,10 +2,34 @@
 //! session (`McapWriter`, WP-05).
 
 use std::io;
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 
 use mote_codec::Jpeg;
+use mote_net::Net;
 
-use crate::types::{Config, EncodedFrame, EncodedPair, Frame, Pair, Record, CODEC_JPEG};
+use crate::types::{Config, EncodedFrame, EncodedPair, Event, Frame, Pair, Record, CODEC_JPEG};
+
+/// Ce que le core fixe au démarrage d'une session et transmet à l'écriture.
+pub struct SessionStart {
+    pub id: String,
+    pub start_unix_ns: i64,
+    pub start_t_ns: i64,
+    /// Fichier de session, `<local_dir>/<id>.mcap`.
+    pub path: PathBuf,
+    /// Flux live, si `server_addr` est configuré.
+    pub live: Option<Live>,
+}
+
+/// Côté écriture du flux live : chaque message écrit localement est ensuite mis en file live (SPEC-9df2).
+pub struct Live {
+    pub net: Arc<Net>,
+    /// Événements du client réseau, à écrire dans `/events`.
+    pub events: Receiver<Event>,
+    /// Remet un événement à l'hôte (`mote_poll_event`).
+    pub notify: Arc<dyn Fn(Event) + Send + Sync>,
+}
 
 /// Encode une paire retenue. Tourne sur le thread d'encodage.
 pub trait Encoder: Send + 'static {
@@ -15,7 +39,7 @@ pub trait Encoder: Send + 'static {
 /// Écrit ce qui sort des files, sur le thread d'écriture, dans l'ordre d'arrivée.
 pub trait Writer: Send + 'static {
     /// Appelé par `start`, avant toute écriture ; une erreur fait échouer `start`.
-    fn open(&mut self, _config: &Config) -> io::Result<()> {
+    fn open(&mut self, _config: &Config, _session: SessionStart) -> io::Result<()> {
         Ok(())
     }
     fn write(&mut self, record: Record) -> io::Result<()>;

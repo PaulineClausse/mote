@@ -8,12 +8,14 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use mote_net::{Net, NetConfig};
 
 use crate::clock;
-use crate::mcap_writer::McapWriter;
+use crate::mcap_writer::{session_id, McapWriter};
 use crate::selection::{sharpness, Selector};
-use crate::stages::{Encoder, JpegEncoder, RawEncoder, Writer};
+use crate::stages::{Encoder, JpegEncoder, Live, RawEncoder, SessionStart, Writer};
 use crate::types::*;
 
 /// Paires retenues en attente d'encodage. Une paire RGBA de 1280x1280 pèse environ 13 Mo : la file en garde 4,
@@ -63,11 +65,17 @@ struct Shared {
     counters: Counters,
     events: Mutex<VecDeque<Event>>,
     write_error: Mutex<bool>,
+    /// Client du flux live, de `start` à la destruction du core : il sert le rattrapage après `stop`.
+    net: Mutex<Option<Arc<Net>>>,
 }
 
 impl Shared {
     fn stats(&self) -> Stats {
         let c = &self.counters;
+        let net = lock(&self.net)
+            .as_ref()
+            .map(|n| n.stats())
+            .unwrap_or_default();
         Stats {
             t_ns: clock::now_ns(),
             pairs_pushed: c.pairs_pushed.load(Ordering::Relaxed),
@@ -75,8 +83,20 @@ impl Shared {
             pairs_dropped: c.pairs_dropped.load(Ordering::Relaxed),
             bytes_written: c.bytes_written.load(Ordering::Relaxed),
             encode_ms_avg: f32::from_bits(c.encode_ms_avg.load(Ordering::Relaxed)),
-            ..Stats::default()
+            bytes_sent: net.bytes_sent,
+            net_mbps: net.net_mbps,
+            live_queue_fill: net.live_queue_fill,
+            net_connected: net.connected,
         }
+    }
+
+    /// Remet un événement à l'hôte (`mote_poll_event`) ; au-delà de la capacité, les plus anciens sont oubliés.
+    fn notify(&self, e: Event) {
+        let mut q = lock(&self.events);
+        if q.len() == EVENT_QUEUE_CAPACITY {
+            q.pop_front();
+        }
+        q.push_back(e);
     }
 }
 
@@ -133,6 +153,7 @@ impl Core {
                 counters: Counters::default(),
                 events: Mutex::new(VecDeque::new()),
                 write_error: Mutex::new(false),
+                net: Mutex::new(None),
             }),
         }
     }
@@ -155,8 +176,27 @@ impl Core {
         else {
             unreachable!()
         };
+        let start_t_ns = clock::now_ns();
+        let start_unix_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as i64);
+        let id = session_id(start_unix_ns);
+        let path = self.config.local_dir.join(format!("{id}.mcap"));
+        let live = self.start_net(&id, &path);
+        let session = SessionStart {
+            id,
+            start_unix_ns,
+            start_t_ns,
+            path,
+            live,
+        };
         // Un échec d'ouverture laisse la session arrêtée : un contexte par session.
-        writer.open(&self.config).map_err(|_| Error::Io)?;
+        if writer.open(&self.config, session).is_err() {
+            if let Some(net) = lock(&self.shared.net).take() {
+                net.close();
+            }
+            return Err(Error::Io);
+        }
         let (pairs, pairs_rx) = mpsc::sync_channel(ENCODE_QUEUE_CAPACITY);
         let (records, records_rx) = mpsc::sync_channel(WRITE_QUEUE_CAPACITY);
         let encode = {
@@ -181,7 +221,47 @@ impl Core {
         Ok(())
     }
 
+    /// Démarre le client du flux live si `server_addr` est configuré. Ses événements vont à l'hôte et, par un
+    /// canal, à l'écriture de `/events`.
+    fn start_net(&self, session_id: &str, path: &std::path::Path) -> Option<Live> {
+        let addr = self.config.server_addr.clone()?;
+        let n = &self.config.net;
+        let cfg = NetConfig {
+            addr,
+            auth_token: self.config.auth_token.clone().unwrap_or_default(),
+            session_id: session_id.to_owned(),
+            schema_version: 1,
+            mcap_path: path.to_owned(),
+            live_queue_bytes: n.live_queue_bytes,
+            connect_timeout: n.connect_timeout,
+            reconnect_min: n.reconnect_min,
+            reconnect_max: n.reconnect_max,
+            resend_batch: n.resend_batch,
+        };
+        let (tx, rx) = mpsc::channel::<Event>();
+        let tx = Mutex::new(tx);
+        let shared = self.shared.clone();
+        let sink = Arc::new(move |kind: u32, detail: String| {
+            let e = Event {
+                t_ns: clock::now_ns(),
+                kind,
+                detail,
+            };
+            shared.notify(e.clone());
+            let _ = lock(&tx).send(e);
+        });
+        let net = Arc::new(Net::start(cfg, sink));
+        *lock(&self.shared.net) = Some(net.clone());
+        let shared = self.shared.clone();
+        Some(Live {
+            net,
+            events: rx,
+            notify: Arc::new(move |e| shared.notify(e)),
+        })
+    }
+
     /// Vide les files, attend la fin de l'écriture. Une erreur d'écriture survenue pendant la session sort ici.
+    /// Le flux live continue de servir le rattrapage jusqu'à la destruction du core.
     pub fn stop(&self) -> Result<()> {
         let running = {
             let mut state = lock(&self.state);
@@ -287,13 +367,7 @@ impl Core {
             kind,
             detail,
         };
-        {
-            let mut q = lock(&self.shared.events);
-            if q.len() == EVENT_QUEUE_CAPACITY {
-                q.pop_front();
-            }
-            q.push_back(e.clone());
-        }
+        self.shared.notify(e.clone());
         let _ = self.record(Record::Event(e));
     }
 
@@ -324,6 +398,9 @@ impl Core {
 impl Drop for Core {
     fn drop(&mut self) {
         let _ = self.stop();
+        if let Some(net) = lock(&self.shared.net).take() {
+            net.close();
+        }
     }
 }
 

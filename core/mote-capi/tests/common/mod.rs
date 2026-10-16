@@ -38,6 +38,11 @@ pub fn session(dir: &Path) -> Session {
         kf_min_sharpness: 0.0,
         pair_max_dt_ns: 5_000_000,
         flags: MOTE_FLAG_RECORD_ALL,
+        live_queue_bytes: 0,
+        connect_timeout_ms: 0,
+        reconnect_min_ms: 0,
+        reconnect_max_ms: 0,
+        resend_batch_ms: 0,
     };
     Session {
         _dir: dir,

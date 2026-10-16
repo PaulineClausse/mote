@@ -9,3 +9,5 @@ publish.workspace = true
 
 [dependencies]
 mote-proto.workspace = true
+mcap = { version = "0.25", default-features = false, features = ["zstd"] }
+prost = "0.14"

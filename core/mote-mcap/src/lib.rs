@@ -132,7 +132,12 @@ pub const CHUNK_SIZE: u64 = 1 << 20;
 
 impl SessionWriter {
     /// Crée le fichier (jamais d'écrasement), déclare tous les canaux et écrit `/session/info`.
-    pub fn create(path: &Path, info: &v1::SessionInfo, log_time_ns: i64) -> io::Result<Self> {
+    /// Renvoie aussi le seq de `/session/info` (0), pour le flux live.
+    pub fn create(
+        path: &Path,
+        info: &v1::SessionInfo,
+        log_time_ns: i64,
+    ) -> io::Result<(Self, u64)> {
         let file = File::create_new(path)?;
         let len = Arc::new(AtomicU64::new(0));
         let out = Counted {
@@ -170,17 +175,17 @@ impl SessionWriter {
             next_seq: [0; 11],
             len,
         };
-        w.write(Channel::SessionInfo, log_time_ns, info)?;
-        Ok(w)
+        let info_seq = w.write(Channel::SessionInfo, log_time_ns, info)?;
+        Ok((w, info_seq))
     }
 
-    /// Écrit un message sur son canal, avec le seq suivant. `log_time_ns` est l'horloge mote.
+    /// Écrit un message sur son canal, avec le seq suivant, et renvoie ce seq. `log_time_ns` est l'horloge mote.
     pub fn write(
         &mut self,
         channel: Channel,
         log_time_ns: i64,
         msg: &impl Message,
-    ) -> io::Result<()> {
+    ) -> io::Result<u64> {
         let i = channel.index();
         let seq = self.next_seq[i];
         let sequence = u32::try_from(seq).map_err(|_| io::Error::other("seq au-delà de u32"))?;
@@ -194,7 +199,7 @@ impl SessionWriter {
             .write_to_known_channel(&header, &msg.encode_to_vec())
             .map_err(mcap_err)?;
         self.next_seq[i] = seq + 1;
-        Ok(())
+        Ok(seq)
     }
 
     /// Ferme le chunk en cours et le transmet au système : ce qui précède survit à la mort du processus.
@@ -221,14 +226,25 @@ impl SessionWriter {
         }
     }
 
-    /// Écrit `/session/end`, le résumé et l'index, puis ferme le fichier ; renvoie sa taille finale.
-    pub fn finish(mut self, log_time_ns: i64) -> io::Result<u64> {
+    /// Écrit `/session/end`, le résumé et l'index, puis ferme le fichier.
+    pub fn finish(mut self, log_time_ns: i64) -> io::Result<Finished> {
         let end = self.session_end();
-        self.write(Channel::SessionEnd, log_time_ns, &end)?;
+        let end_seq = self.write(Channel::SessionEnd, log_time_ns, &end)?;
         self.mcap.finish().map_err(mcap_err)?;
         let mut out = self.mcap.into_inner();
         out.file.flush()?;
         out.file.get_ref().sync_all()?;
-        Ok(self.len.load(Ordering::Relaxed))
+        Ok(Finished {
+            len: self.len.load(Ordering::Relaxed),
+            end,
+            end_seq,
+        })
     }
+}
+
+/// Ce que la fermeture du fichier rend : sa taille finale, et le `/session/end` écrit, pour le flux live.
+pub struct Finished {
+    pub len: u64,
+    pub end: v1::SessionEnd,
+    pub end_seq: u64,
 }
