@@ -464,7 +464,9 @@ dependencies = [
 name = "mote-net"
 version = "0.1.0"
 dependencies = [
+ "mcap",
  "mote-proto",
+ "prost",
 ]
 
 [[package]]

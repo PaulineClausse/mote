@@ -3,12 +3,13 @@
 //! l'hôte les a fournies, avec leur convention (ADR-6ded).
 
 use std::io;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mote_mcap::{v1, Channel, SessionWriter};
+use mote_net::v1::envelope::Body;
+use mote_net::EVENT_LIVE_DROPPED;
 
 use crate::clock;
-use crate::stages::Writer;
+use crate::stages::{Live, SessionStart, Writer};
 use crate::types::*;
 
 const SCHEMA_VERSION: u32 = 1;
@@ -52,7 +53,7 @@ pub fn session_meta(json: Option<&str>) -> Option<SessionMeta> {
 }
 
 /// Identifiant de session : date UTC du démarrage, à la milliseconde (`AAAAMMJJ-HHMMSS-mmm`).
-fn session_id(unix_ns: i64) -> String {
+pub(crate) fn session_id(unix_ns: i64) -> String {
     let ms = unix_ns.div_euclid(1_000_000);
     let (secs, ms) = (ms.div_euclid(1000), ms.rem_euclid(1000));
     let (days, sod) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -85,6 +86,13 @@ fn config_json(c: &Config) -> String {
         "pair_max_dt_ns": c.pair_max_dt_ns,
         "flags": c.flags,
         "server_addr": c.server_addr,
+        "net": {
+            "live_queue_bytes": c.net.live_queue_bytes,
+            "connect_timeout_ms": c.net.connect_timeout.as_millis() as u64,
+            "reconnect_min_ms": c.net.reconnect_min.as_millis() as u64,
+            "reconnect_max_ms": c.net.reconnect_max.as_millis() as u64,
+            "resend_batch_ms": c.net.resend_batch.as_millis() as u64,
+        },
     })
     .to_string()
 }
@@ -126,10 +134,12 @@ fn image(pair_id: u64, f: EncodedFrame) -> v1::ImageFrame {
     }
 }
 
-/// Écrit la session dans `<local_dir>/<session_id>.mcap`.
+/// Écrit la session dans le fichier fixé par le core, puis met chaque message en file live si le flux est
+/// configuré : un message n'est émis qu'après avoir été remis à l'écriture locale (SPEC-9df2).
 #[derive(Default)]
 pub struct McapWriter {
     file: Option<SessionWriter>,
+    live: Option<Live>,
     /// Taille du fichier une fois fermé.
     closed_len: u64,
 }
@@ -139,26 +149,66 @@ impl McapWriter {
         Self::default()
     }
 
-    fn file(&mut self) -> io::Result<&mut SessionWriter> {
-        self.file
+    /// Écrit un message sur son canal, puis le met en file live ; les images et profondeurs que la file retire
+    /// donnent chacune un `LIVE_DROPPED`, écrit dans `/events` et remis à l'hôte.
+    fn put<M: mote_proto::Message>(
+        &mut self,
+        channel: Channel,
+        log_time_ns: i64,
+        msg: M,
+        body: fn(M) -> Body,
+    ) -> io::Result<()> {
+        let f = self
+            .file
             .as_mut()
-            .ok_or_else(|| io::Error::other("session MCAP non ouverte"))
+            .ok_or_else(|| io::Error::other("session MCAP non ouverte"))?;
+        let seq = f.write(channel, log_time_ns, &msg)?;
+        let Some(live) = &self.live else {
+            return Ok(());
+        };
+        let dropped = live.net.push(channel.topic(), seq, body(msg));
+        let notify = live.notify.clone();
+        for (topic, seq) in dropped {
+            let e = Event {
+                t_ns: clock::now_ns(),
+                kind: EVENT_LIVE_DROPPED,
+                detail: format!("{topic} {seq}"),
+            };
+            notify(e.clone());
+            self.put(Channel::Events, e.t_ns, event(e), Body::Event)?;
+        }
+        Ok(())
+    }
+
+    /// Écrit dans `/events` les événements du client réseau (connexion, coupure) reçus depuis le dernier appel.
+    fn drain_net_events(&mut self) -> io::Result<()> {
+        let pending: Vec<Event> = match &self.live {
+            Some(live) => live.events.try_iter().collect(),
+            None => return Ok(()),
+        };
+        for e in pending {
+            self.put(Channel::Events, e.t_ns, event(e), Body::Event)?;
+        }
+        Ok(())
+    }
+}
+
+fn event(e: Event) -> v1::Event {
+    v1::Event {
+        t_ns: e.t_ns,
+        r#type: e.kind as i32,
+        detail: e.detail,
     }
 }
 
 impl Writer for McapWriter {
-    fn open(&mut self, config: &Config) -> io::Result<()> {
-        let start_t_ns = clock::now_ns();
-        let start_unix_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos() as i64);
+    fn open(&mut self, config: &Config, session: SessionStart) -> io::Result<()> {
         let meta = session_meta(config.session_info_json.as_deref()).unwrap_or_default();
-        let id = session_id(start_unix_ns);
         let info = v1::SessionInfo {
             schema_version: SCHEMA_VERSION,
-            session_id: id.clone(),
-            start_unix_ns,
-            start_t_ns,
+            session_id: session.id.clone(),
+            start_unix_ns: session.start_unix_ns,
+            start_t_ns: session.start_t_ns,
             device_model: meta.device_model,
             os_build: meta.os_build,
             sdk_versions: meta.sdk_versions,
@@ -167,18 +217,27 @@ impl Writer for McapWriter {
             tracking_space: meta.tracking_space,
             config_json: config_json(config),
         };
-        let path = config.local_dir.join(format!("{id}.mcap"));
-        self.file = Some(SessionWriter::create(&path, &info, start_t_ns)?);
+        let (file, info_seq) = SessionWriter::create(&session.path, &info, session.start_t_ns)?;
+        self.file = Some(file);
+        self.live = session.live;
+        if let Some(live) = &self.live {
+            let _ = live.net.push(
+                Channel::SessionInfo.topic(),
+                info_seq,
+                Body::SessionInfo(info),
+            );
+        }
         Ok(())
     }
 
     fn write(&mut self, record: Record) -> io::Result<()> {
-        let f = self.file()?;
+        self.drain_net_events()?;
         match record {
             Record::Pair(p) => {
+                let p = *p;
                 let (t_l, t_r) = (p.left.source.t_ns, p.right.source.t_ns);
-                f.write(Channel::LeftFrame, t_l, &image(p.id, p.left))?;
-                f.write(Channel::RightFrame, t_r, &image(p.id, p.right))
+                self.put(Channel::LeftFrame, t_l, image(p.id, p.left), Body::Image)?;
+                self.put(Channel::RightFrame, t_r, image(p.id, p.right), Body::Image)
             }
             Record::Intrinsics(i) => {
                 let channel = if i.camera == 0 {
@@ -199,7 +258,7 @@ impl Writer for McapWriter {
                     convention,
                     hmd_from_camera,
                 };
-                f.write(channel, clock::now_ns(), &msg)
+                self.put(channel, clock::now_ns(), msg, Body::Intrinsics)
             }
             Record::HmdPose(p) => {
                 let msg = v1::PoseSample {
@@ -210,7 +269,7 @@ impl Writer for McapWriter {
                     world_from_hmd: Some(pose3(&p.world_from_hmd.pose)),
                     predicted: p.predicted,
                 };
-                f.write(Channel::HmdPose, p.t_ns, &msg)
+                self.put(Channel::HmdPose, p.t_ns, msg, Body::Pose)
             }
             Record::Depth(d) => {
                 let channel = if d.eye == 0 {
@@ -238,16 +297,9 @@ impl Writer for McapWriter {
                     max_depth: d.max_depth,
                     src_predicted_display_time_ns: None,
                 };
-                f.write(channel, d.t_ns, &msg)
+                self.put(channel, d.t_ns, msg, Body::Depth)
             }
-            Record::Event(e) => {
-                let msg = v1::Event {
-                    t_ns: e.t_ns,
-                    r#type: e.kind as i32,
-                    detail: e.detail,
-                };
-                f.write(Channel::Events, e.t_ns, &msg)
-            }
+            Record::Event(e) => self.put(Channel::Events, e.t_ns, event(e), Body::Event),
             Record::Stats(s) => {
                 let msg = v1::Stats {
                     t_ns: s.t_ns,
@@ -260,13 +312,17 @@ impl Writer for McapWriter {
                     encode_ms_avg: s.encode_ms_avg,
                     live_queue_fill: s.live_queue_fill,
                 };
-                f.write(Channel::Stats, s.t_ns, &msg)
+                self.put(Channel::Stats, s.t_ns, msg, Body::Stats)
             }
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.file()?.flush()
+        self.drain_net_events()?;
+        self.file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("session MCAP non ouverte"))?
+            .flush()
     }
 
     fn bytes_written(&self) -> u64 {
@@ -276,11 +332,20 @@ impl Writer for McapWriter {
     }
 
     fn finish(&mut self) -> io::Result<()> {
+        self.drain_net_events()?;
         let f = self
             .file
             .take()
             .ok_or_else(|| io::Error::other("session MCAP non ouverte"))?;
-        self.closed_len = f.finish(clock::now_ns())?;
+        let done = f.finish(clock::now_ns())?;
+        self.closed_len = done.len;
+        if let Some(live) = &self.live {
+            let _ = live.net.push(
+                Channel::SessionEnd.topic(),
+                done.end_seq,
+                Body::SessionEnd(done.end),
+            );
+        }
         Ok(())
     }
 }

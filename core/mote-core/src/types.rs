@@ -3,6 +3,9 @@
 //! mote.v1, transmises telles quelles.
 
 use std::path::PathBuf;
+use std::time::Duration;
+
+use mote_net::NetConfig;
 
 /// Code de `mote_config.codec`.
 pub const CODEC_JPEG: u32 = 1;
@@ -29,6 +32,33 @@ pub struct Config {
     /// Écart gauche/droite maximal ; 0 ou moins désactive le contrôle.
     pub pair_max_dt_ns: i64,
     pub flags: u32,
+    pub net: NetSettings,
+}
+
+/// Réglages du transport live (WP-14). Les défauts viennent de SP-5 et d'un réseau Wi-Fi 6 en 5 GHz : chacun les
+/// ajuste à son réseau par `mote_config`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetSettings {
+    /// Borne de la file live, en octets.
+    pub live_queue_bytes: usize,
+    pub connect_timeout: Duration,
+    /// Délai avant la première reconnexion, doublé à chaque échec jusqu'à `reconnect_max`.
+    pub reconnect_min: Duration,
+    pub reconnect_max: Duration,
+    /// Regroupement des demandes de rattrapage avant une relecture du fichier local.
+    pub resend_batch: Duration,
+}
+
+impl Default for NetSettings {
+    fn default() -> Self {
+        NetSettings {
+            live_queue_bytes: NetConfig::DEFAULT_LIVE_QUEUE_BYTES,
+            connect_timeout: NetConfig::DEFAULT_CONNECT_TIMEOUT,
+            reconnect_min: NetConfig::DEFAULT_RECONNECT_MIN,
+            reconnect_max: NetConfig::DEFAULT_RECONNECT_MAX,
+            resend_batch: NetConfig::DEFAULT_RESEND_BATCH,
+        }
+    }
 }
 
 /// Position (m) et rotation (x, y, z, w).

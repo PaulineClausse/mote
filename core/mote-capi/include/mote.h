@@ -54,6 +54,16 @@ typedef struct mote_config {
   int64_t pair_max_dt_ns;
   // MOTE_FLAG_*
   uint32_t flags;
+  // borne de la file live en octets ; 0 = 64 Mio
+  uint64_t live_queue_bytes;
+  // délai de connexion ; 0 = 3000 ms
+  uint32_t connect_timeout_ms;
+  // premier délai de reconnexion, doublé à chaque échec ; 0 = 500 ms
+  uint32_t reconnect_min_ms;
+  // délai de reconnexion maximal ; 0 = 5000 ms
+  uint32_t reconnect_max_ms;
+  // regroupement des demandes de rattrapage ; 0 = 500 ms
+  uint32_t resend_batch_ms;
 } mote_config;
 
 // q = x,y,z,w

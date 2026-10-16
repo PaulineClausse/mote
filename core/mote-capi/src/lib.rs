@@ -9,6 +9,7 @@ use std::ffi::{c_char, c_void, CStr};
 use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use mote_core as core;
 
@@ -84,7 +85,23 @@ pub struct mote_config {
     pub pair_max_dt_ns: i64,
     /// MOTE_FLAG_*
     pub flags: u32,
+    // Réglages du flux live (WP-14), ajoutés en fin de structure : un hôte compilé sans eux passe un struct_size
+    // plus petit et obtient les défauts. 0 = défaut ; les défauts viennent de SP-5 (Wi-Fi 6, 5 GHz) et se règlent
+    // selon le réseau.
+    /// borne de la file live en octets ; 0 = 64 Mio
+    pub live_queue_bytes: u64,
+    /// délai de connexion ; 0 = 3000 ms
+    pub connect_timeout_ms: u32,
+    /// premier délai de reconnexion, doublé à chaque échec ; 0 = 500 ms
+    pub reconnect_min_ms: u32,
+    /// délai de reconnexion maximal ; 0 = 5000 ms
+    pub reconnect_max_ms: u32,
+    /// regroupement des demandes de rattrapage ; 0 = 500 ms
+    pub resend_batch_ms: u32,
 }
+
+/// Taille de `mote_config` avant les réglages du flux live : la plus petite acceptée.
+const MOTE_CONFIG_V1_SIZE: usize = std::mem::offset_of!(mote_config, live_queue_bytes);
 
 /// q = x,y,z,w
 #[repr(C)]
@@ -221,8 +238,38 @@ unsafe fn opt_str(p: *const c_char) -> Result<Option<String>, mote_status> {
     Ok((!s.is_empty()).then(|| s.to_owned()))
 }
 
+/// Réglages du flux live, ou leurs défauts si l'hôte ne les connaît pas (struct_size plus petit) ou passe 0.
+fn net_settings(c: &mote_config) -> Result<core::NetSettings, mote_status> {
+    let mut n = core::NetSettings::default();
+    if (c.struct_size as usize) < size_of::<mote_config>() {
+        return Ok(n);
+    }
+    let ms = |v: u32, d: Duration| {
+        if v == 0 {
+            d
+        } else {
+            Duration::from_millis(v as u64)
+        }
+    };
+    if c.live_queue_bytes != 0 {
+        n.live_queue_bytes =
+            usize::try_from(c.live_queue_bytes).map_err(|_| MOTE_ERR_INVALID_ARG)?;
+    }
+    n.connect_timeout = ms(c.connect_timeout_ms, n.connect_timeout);
+    n.reconnect_min = ms(c.reconnect_min_ms, n.reconnect_min);
+    n.reconnect_max = ms(c.reconnect_max_ms, n.reconnect_max);
+    n.resend_batch = ms(c.resend_batch_ms, n.resend_batch);
+    if n.reconnect_min > n.reconnect_max {
+        return Err(MOTE_ERR_INVALID_ARG);
+    }
+    Ok(n)
+}
+
 unsafe fn config(cfg: *const mote_config) -> Result<core::Config, mote_status> {
-    let c = arg(cfg, |c| c.struct_size)?;
+    let c = cfg.as_ref().ok_or(MOTE_ERR_INVALID_ARG)?;
+    if (c.struct_size as usize) < MOTE_CONFIG_V1_SIZE {
+        return Err(MOTE_ERR_INVALID_ARG);
+    }
     if c.abi_version != MOTE_ABI_VERSION {
         return Err(MOTE_ERR_INVALID_ARG);
     }
@@ -256,6 +303,7 @@ unsafe fn config(cfg: *const mote_config) -> Result<core::Config, mote_status> {
         kf_min_sharpness: c.kf_min_sharpness,
         pair_max_dt_ns: c.pair_max_dt_ns,
         flags: c.flags,
+        net: net_settings(c)?,
     })
 }
 
