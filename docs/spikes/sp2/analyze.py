@@ -192,7 +192,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
                 (errs_s if is_static(o) else errs_m).append(err)
                 pnp_r.append(o.rms)
                 worst.append((err, lb, e, o.t - t_first[(lb, e)], o.frame.updated, float(np.linalg.norm(o.omega)),
-                              is_static(o), o.file))
+                              is_static(o), o.file, o, K))
         reproj[e] = {"static_med": pct(errs_s, 50), "static_p95": pct(errs_s, 95),
                      "moving_med": pct(errs_m, 50), "moving_p95": pct(errs_m, 95), "pnp_med": pct(pnp_r, 50)}
         r = reproj[e]
@@ -204,11 +204,35 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     rep += ["", f"Images reprojetées à plus de 20 px : {n_out} sur {len(worst)}, dont "
             f"{sum(1 for w in worst if w[0] > 20 and not w[4])} sans pose MRUK neuve (is_updated_this_frame = false). "
             "Les dix pires :", "",
-            "| Erreur (px) | Session | Œil | Depuis le début (s) | Pose neuve | |ω| (rad/s) | Immobile | Image |",
-            "|---|---|---|---|---|---|---|---|"]
-    for err, lb, e, dt, upd, om, st_, name in worst[:10]:
+            "| Erreur (px) | Session | Œil | Depuis le début (s) | Pose neuve | |ω| (rad/s) | Immobile | "
+            "Erreur coins inversés (px) | MRUK contre casque (°, mm) | Damier déplacé (°, mm) |",
+            "|---|---|---|---|---|---|---|---|---|---|"]
+    # Pour départager les causes d'une grosse erreur : numérotation des coins inversée (l'erreur retombe une fois les
+    # coins inversés), pose MRUK qui saute seule (écart à la pose du casque, extrinsèque estimée sur les images
+    # immobiles), ou damier qui paraît déplacé dans le monde (la pose du casque et la pose MRUK concordent).
+    ext = {}
+    for e in EYES:
+        st_e = [o for (lb, ee), lst in obs.items() if ee == e for o in lst if is_static(o)]
+        if len(st_e) >= 3:
+            Rx = L.mean_rotation([hmds[o.session].rot_at(o.t).T @ L.unity_to_cv(o.frame.pos, o.frame.quat, D)[0]
+                                  for o in st_e])
+            tx = np.median([hmds[o.session].rot_at(o.t).T @ (L.unity_to_cv(o.frame.pos, o.frame.quat, D)[1] -
+                                                              hmds[o.session].pos_at(o.t)) for o in st_e], axis=0)
+            ext[e] = (Rx, tx)
+    for err, lb, e, dt, upd, om, st_, name, o, K in worst[:10]:
+        R_wc, t_wc = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
+        uv = L.project(obj, *bw(o), R_wc, t_wc, K)
+        rev = float(np.sqrt(np.mean(np.sum((uv - o.corners[::-1]) ** 2, axis=1))))
+        mh = "-"
+        if e in ext:
+            h = hmds[lb]
+            R_p = h.rot_at(o.t) @ ext[e][0]
+            t_p = h.pos_at(o.t) + h.rot_at(o.t) @ ext[e][1]
+            mh = f"{f(L.angle_deg(R_wc @ R_p.T))}, {f(float(np.linalg.norm(t_wc - t_p) * 1e3), 0)}"
+        R_b, t_b = bw(o)
+        bj = f"{f(L.angle_deg(R_wc @ o.R_cb @ R_b.T))}, {f(float(np.linalg.norm(R_wc @ o.t_cb + t_wc - t_b) * 1e3), 0)}"
         rep.append(f"| {f(err, 1)} | {lb} | {e} | {f(dt, 2)} | {'oui' if upd else 'non'} | {f(om)} | "
-                   f"{'oui' if st_ else 'non'} | {name} |")
+                   f"{'oui' if st_ else 'non'} | {f(rev, 1)} | {mh} | {bj} |")
     clean = [w for w in worst if w[4]]
     res["reprojection_updated_only"] = {"n": len(clean), "p50": pct([w[0] for w in clean], 50),
                                         "p95": pct([w[0] for w in clean], 95)}

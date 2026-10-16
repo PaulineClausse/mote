@@ -123,7 +123,7 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
             "focalLength": {"x": K[0, 0], "y": K[1, 1]}, "principalPoint": {"x": K[0, 2], "y": K[1, 2]},
             "resolution": {"width": 1280, "height": 1280}}), encoding="utf-8")
         (s / "sp2_cache").mkdir(exist_ok=True)
-        np.savez_compressed(s / "sp2_cache" / f"corners_{eye}_{COLS}x{ROWS}.npz", **corners[eye])
+        np.savez_compressed(s / "sp2_cache" / f"corners_v2_{eye}_{COLS}x{ROWS}.npz", **corners[eye])
     with (s / "mruk_stereo_pairs.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["pair_index", "time_delta_us"])
@@ -199,3 +199,32 @@ def test_mesure_une_distorsion(tmp_path):
     sessions = {"B": write_session(tmp_path, "B", k1=-0.05, tau=0.0, seed=4)}
     d = analyze.analyze(sessions, SQUARE, COLS, ROWS, workers=1)[1]["distortion"]["left"]
     assert d["k1"] == pytest.approx(-0.05, abs=0.02)
+
+
+def _board_image(cols_sq=10, rows_sq=7, px=60, at=(200, 300), size=(1280, 1280)):
+    """Image d'un damier de cols_sq x rows_sq cases, case (0, 0) sombre, coin haut gauche en `at`."""
+    img = np.full(size, 200, np.uint8)
+    x0, y0 = at
+    for r in range(rows_sq):
+        for c in range(cols_sq):
+            if (r + c) % 2 == 0:
+                ya, yb = max(y0 + r * px, 0), max(y0 + (r + 1) * px, 0)
+                xa, xb = max(x0 + c * px, 0), max(x0 + (c + 1) * px, 0)
+                img[ya:yb, xa:xb] = 20      # les cases qui dépassent de l'image sont coupées
+    return img
+
+
+# Damier entier, collé au bord, puis coupé : la case de coin sort de l'image (cas de la session E).
+@pytest.mark.parametrize("at", [(200, 300), (5, 5), (1280 - 10 * 60 - 3, 1280 - 7 * 60 - 3), (-40, -40), (-40, 300)])
+def test_numerotation_des_coins_stable_par_rotation(at):
+    """Le même coin physique doit porter le même numéro, l'image tournée de 180° ou non, damier au bord compris."""
+    import cv2
+    img = _board_image(at=at)
+    rot = img[::-1, ::-1].copy()
+    ok1, c1 = cv2.findChessboardCornersSB(img, (COLS, ROWS))
+    ok2, c2 = cv2.findChessboardCornersSB(rot, (COLS, ROWS))
+    assert ok1 and ok2
+    c1 = L.canonical_order(c1.reshape(-1, 2).astype(float), img, COLS)
+    c2 = L.canonical_order(c2.reshape(-1, 2).astype(float), rot, COLS)
+    back = np.column_stack([1280 - 1 - c2[:, 0], 1280 - 1 - c2[:, 1]])
+    assert np.abs(back - c1).max() < 1.0

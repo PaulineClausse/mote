@@ -176,6 +176,11 @@ class HmdTrack:
         R0, R1 = self.R[i - 1], self.R[i]
         return R0 @ exp_rot(a * log_rot(R0.T @ R1))
 
+    def pos_at(self, t: float) -> np.ndarray:
+        i = int(np.clip(np.searchsorted(self.t, t), 1, len(self.t) - 1))
+        a = (t - self.t[i - 1]) / (self.t[i] - self.t[i - 1])
+        return (1 - a) * self.p[i - 1] + a * self.p[i]
+
     def omega(self, t: float, h: float = 0.01) -> np.ndarray:
         """Vitesse angulaire (rad/s) dans le monde, par différence centrée."""
         return log_rot(self.rot_at(t + h) @ self.rot_at(t - h).T) / (2 * h)
@@ -204,16 +209,33 @@ def read_gray(path: Path, cam: Camera):
 
 
 def canonical_order(corners: np.ndarray, gray, cols: int) -> np.ndarray:
-    """Le damier n'a qu'une orientation (une dimension paire, l'autre impaire), mais le détecteur peut numéroter
-    ses coins dans un sens ou dans l'autre : on retourne la liste si la case extérieure au coin 0 est claire."""
+    """Le damier n'a qu'une orientation (une dimension paire, l'autre impaire), mais le détecteur peut numéroter ses
+    coins dans un sens ou dans l'autre (rotation de 180°). On regarde la première case intérieure, entre les coins 0,
+    1, cols et cols + 1 : elle est toujours dans l'image, et sa couleur s'inverse avec la rotation (la dernière case
+    intérieure est de l'autre couleur). Numérotation retenue : première case sombre.
+
+    Une première version regardait la case extérieure au coin 0 : quand le damier touche le bord de l'image, cette
+    case tombe dehors ou sur le fond, et la numérotation s'inversait (erreur d'environ la taille du damier, session E
+    du 2026-10-16)."""
     if gray is None:
         return corners
-    c0, dx, dy = corners[0], corners[1] - corners[0], corners[cols] - corners[0]
-    x, y = (c0 - (dx + dy) / 2).round().astype(int)
-    if 0 <= y < gray.shape[0] and 0 <= x < gray.shape[1]:
-        ref = float(np.median(gray))
-        if gray[y, x] > ref:
-            return corners[::-1].copy()
+    rows = len(corners) // cols
+
+    def mean_in(quad):
+        x0, y0 = np.floor(quad.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(quad.max(axis=0)).astype(int)
+        c = quad.mean(axis=0)
+        # Fenêtre au centre de la case, assez petite pour ne pas toucher ses voisines.
+        r = max(1, int(0.25 * min(x1 - x0, y1 - y0)))
+        cx, cy = int(round(c[0])), int(round(c[1]))
+        win = gray[max(cy - r, 0):cy + r + 1, max(cx - r, 0):cx + r + 1]
+        return float(win.mean()) if win.size else float("nan")
+
+    first = mean_in(corners[[0, 1, cols, cols + 1]])
+    k = (rows - 1) * cols - 2
+    last = mean_in(corners[[k, k + 1, k + cols, k + cols + 1]])
+    if first > last:
+        return corners[::-1].copy()
     return corners
 
 
@@ -232,7 +254,8 @@ def _detect_one(args):
 
 def detect_session(session: Path, eye: str, cam: Camera, pattern: tuple[int, int], workers: int = 0) -> dict:
     """Coins détectés par image (nom de fichier -> (N, 2), coordonnées du fichier). Mis en cache dans la session."""
-    cache = session / "sp2_cache" / f"corners_{eye}_{pattern[0]}x{pattern[1]}.npz"
+    # v2 : numérotation des coins par la première case intérieure (canonical_order).
+    cache = session / "sp2_cache" / f"corners_v2_{eye}_{pattern[0]}x{pattern[1]}.npz"
     if cache.exists():
         z = np.load(cache)
         return {k: z[k] for k in z.files}
