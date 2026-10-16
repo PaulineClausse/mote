@@ -84,17 +84,21 @@ pub struct EncodedPair {
 }
 
 impl EncodedPair {
-    /// La paire telle quelle, en RGBA brut : ce que produit le core tant que WP-04 n'a pas branché le JPEG.
+    /// La paire telle quelle, en RGBA brut.
     pub fn raw(pair: Pair) -> Self {
-        let wrap = |mut f: Frame| EncodedFrame {
+        EncodedPair {
+            id: pair.id,
+            left: Self::raw_frame(pair.left),
+            right: Self::raw_frame(pair.right),
+        }
+    }
+
+    /// Une image telle quelle, en RGBA brut.
+    pub fn raw_frame(mut f: Frame) -> EncodedFrame {
+        EncodedFrame {
             codec: CODEC_RAW_RGBA,
             data: std::mem::take(&mut f.rgba),
             source: f,
-        };
-        EncodedPair {
-            id: pair.id,
-            left: wrap(pair.left),
-            right: wrap(pair.right),
         }
     }
 }

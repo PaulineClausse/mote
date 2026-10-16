@@ -1,9 +1,11 @@
-//! Étages branchés derrière les files du core : l'encodeur (WP-04) et l'écriture du fichier de session (WP-05,
-//! `McapWriter`).
+//! Étages branchés derrière les files du core : l'encodeur (`JpegEncoder`, WP-04) et l'écriture du fichier de
+//! session (`McapWriter`, WP-05).
 
 use std::io;
 
-use crate::types::{Config, EncodedPair, Pair, Record};
+use mote_codec::Jpeg;
+
+use crate::types::{Config, EncodedFrame, EncodedPair, Frame, Pair, Record, CODEC_JPEG};
 
 /// Encode une paire retenue. Tourne sur le thread d'encodage.
 pub trait Encoder: Send + 'static {
@@ -29,12 +31,56 @@ pub trait Writer: Send + 'static {
     fn finish(&mut self) -> io::Result<()>;
 }
 
-/// Laisse les images en RGBA brut, jusqu'au JPEG de WP-04.
+/// Laisse les images en RGBA brut : codec `RAW_RGBA`, réservé aux sessions de référence (ADR-86d6).
 pub struct RawEncoder;
 
 impl Encoder for RawEncoder {
     fn encode(&mut self, pair: Pair) -> EncodedPair {
         EncodedPair::raw(pair)
+    }
+}
+
+/// JPEG par libjpeg-turbo (ADR-86d6) ; la gauche et la droite sont encodées en parallèle, sur deux threads.
+pub struct JpegEncoder {
+    left: Jpeg,
+    right: Jpeg,
+}
+
+impl JpegEncoder {
+    pub fn new(quality: u32) -> Result<Self, mote_codec::Error> {
+        Ok(JpegEncoder {
+            left: Jpeg::new(quality)?,
+            right: Jpeg::new(quality)?,
+        })
+    }
+}
+
+/// Une image encodée en JPEG ; si libjpeg-turbo échoue, l'image est gardée en RGBA brut (codec déclaré tel quel)
+/// plutôt que perdue : le fichier local est la source de vérité (ADR-d5f3).
+fn jpeg_or_raw(jpeg: &mut Jpeg, mut f: Frame) -> EncodedFrame {
+    match jpeg.encode(&f.rgba, f.width, f.height) {
+        Ok(data) => {
+            f.rgba = Vec::new();
+            EncodedFrame {
+                codec: CODEC_JPEG,
+                data,
+                source: f,
+            }
+        }
+        Err(_) => EncodedPair::raw_frame(f),
+    }
+}
+
+impl Encoder for JpegEncoder {
+    fn encode(&mut self, pair: Pair) -> EncodedPair {
+        let Pair { id, left, right } = pair;
+        let (l, r) = (&mut self.left, &mut self.right);
+        let (left, right) = std::thread::scope(|s| {
+            let left = s.spawn(move || jpeg_or_raw(l, left));
+            let right = jpeg_or_raw(r, right);
+            (left.join().expect("thread d'encodage"), right)
+        });
+        EncodedPair { id, left, right }
     }
 }
 

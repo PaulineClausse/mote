@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::clock;
 use crate::mcap_writer::McapWriter;
-use crate::stages::{Encoder, RawEncoder, Writer};
+use crate::stages::{Encoder, JpegEncoder, RawEncoder, Writer};
 use crate::types::*;
 
 /// Paires retenues en attente d'encodage. Une paire RGBA de 1280x1280 pèse environ 13 Mo : la file en garde 4,
@@ -33,6 +33,8 @@ pub enum Error {
     Busy,
     /// Appel hors séquence.
     State,
+    /// Échec interne (initialisation de l'encodeur).
+    Internal,
 }
 
 impl fmt::Display for Error {
@@ -104,9 +106,20 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Core {
-    /// Session avec les étages par défaut : RGBA brut (jusqu'à WP-04), fichier MCAP dans `local_dir`.
-    pub fn new(config: Config) -> Self {
-        Self::with_stages(config, Box::new(RawEncoder), Box::new(McapWriter::new()))
+    /// Session avec les étages par défaut : JPEG ou RGBA brut selon `codec`, fichier MCAP dans `local_dir`.
+    pub fn new(config: Config) -> Result<Self> {
+        let encoder: Box<dyn Encoder> = match config.codec {
+            CODEC_JPEG => {
+                Box::new(JpegEncoder::new(config.jpeg_quality).map_err(|_| Error::Internal)?)
+            }
+            CODEC_RAW_RGBA => Box::new(RawEncoder),
+            _ => return Err(Error::InvalidArg),
+        };
+        Ok(Self::with_stages(
+            config,
+            encoder,
+            Box::new(McapWriter::new()),
+        ))
     }
 
     pub fn with_stages(config: Config, encoder: Box<dyn Encoder>, writer: Box<dyn Writer>) -> Self {

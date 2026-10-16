@@ -50,6 +50,7 @@ impl From<core::Error> for mote_status {
             core::Error::Io => MOTE_ERR_IO,
             core::Error::Busy => MOTE_ERR_BUSY,
             core::Error::State => MOTE_ERR_STATE,
+            core::Error::Internal => MOTE_ERR_INTERNAL,
         }
     }
 }
@@ -302,19 +303,23 @@ pub unsafe fn create_with_encoder(
     out: *mut *mut mote_ctx,
 ) -> mote_status {
     create(cfg, out, |c| {
-        core::Core::with_stages(c, encoder, Box::new(core::McapWriter::new()))
+        Ok(core::Core::with_stages(
+            c,
+            encoder,
+            Box::new(core::McapWriter::new()),
+        ))
     })
 }
 
 unsafe fn create(
     cfg: *const mote_config,
     out: *mut *mut mote_ctx,
-    make: impl FnOnce(core::Config) -> core::Core,
+    make: impl FnOnce(core::Config) -> core::Result<core::Core>,
 ) -> mote_status {
     guard(|| {
         let out = out.as_mut().ok_or(MOTE_ERR_INVALID_ARG)?;
         *out = std::ptr::null_mut();
-        let core = make(config(cfg)?);
+        let core = make(config(cfg)?)?;
         *out = Box::into_raw(Box::new(mote_ctx { core }));
         Ok(())
     })

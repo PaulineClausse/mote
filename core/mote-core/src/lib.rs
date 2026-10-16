@@ -13,5 +13,5 @@ pub use session::{
     Core, Error, Result, ENCODE_QUEUE_CAPACITY, EVENT_QUEUE_CAPACITY, FLUSH_PERIOD,
     WRITE_QUEUE_CAPACITY,
 };
-pub use stages::{Encoder, NullWriter, RawEncoder, Writer};
+pub use stages::{Encoder, JpegEncoder, NullWriter, RawEncoder, Writer};
 pub use types::*;
