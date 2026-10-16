@@ -1,4 +1,4 @@
-# Core Rust (WP-02) : tests sur PC (Linux, Windows), libmote.so arm64-v8a par cargo-ndk, mote.h à jour.
+# Core Rust (WP-02, WP-03) : tests sur PC (Linux, Windows), libmote.so arm64-v8a par cargo-ndk, mote.h à jour.
 name: core
 
 on:
@@ -42,6 +42,11 @@ jobs:
         run: |
           cc -std=c99 -Wall -Werror -Idist/include mote-capi/tests/smoke.c -Ldist/host -lmote -o smoke
           LD_LIBRARY_PATH=dist/host ./smoke
+      - name: test C de la session complète (critère WP-03)
+        if: runner.os == 'Linux'
+        run: |
+          cc -std=c99 -Wall -Werror -Idist/include mote-capi/tests/api.c -Ldist/host -lmote -lm -o api
+          LD_LIBRARY_PATH=dist/host ./api "$RUNNER_TEMP/mote-api-c"
 
   android:
     name: libmote.so arm64-v8a
@@ -70,7 +75,9 @@ jobs:
           so=dist/android/arm64-v8a/libmote.so
           file "$so" | tee /dev/stderr | grep -q "ARM aarch64"
           readelf -d "$so" | grep NEEDED
-          readelf --dyn-syms "$so" | grep -q " mote_now_ns$"
+          for f in mote_now_ns mote_create mote_start mote_stop mote_destroy mote_set_intrinsics mote_push_pair mote_push_hmd_pose mote_push_depth mote_push_event mote_get_stats mote_poll_event; do
+            readelf --dyn-syms "$so" | grep -q " $f$" || { echo "symbole absent : $f"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: libmote-arm64-v8a

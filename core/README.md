@@ -40,6 +40,14 @@ cd core
 cargo test --workspace
 ```
 
+`mote-capi/tests/api.rs` couvre le critère de WP-03 par les fonctions `extern "C"` ; `mote-capi/tests/api.c` rejoue
+la session complète depuis un hôte C, après `uv run build.py --host` :
+
+```sh
+cc -std=c99 -Wall -Werror -Idist/include mote-capi/tests/api.c -Ldist/host -lmote -lm -o api
+LD_LIBRARY_PATH=dist/host ./api /tmp/mote-api-c
+```
+
 ## CI
 
 `.github/workflows/core.yml`, à chaque push : format, clippy, tests sous Linux et Windows, build hôte, header à jour,
