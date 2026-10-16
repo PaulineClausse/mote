@@ -24,9 +24,14 @@ l'hôte Unity), `host/` (bibliothèque du PC) et `include/mote.h`.
 
 Prérequis :
 - [rustup](https://rustup.rs) (Rust 1.85 ou plus) et [`uv`](https://docs.astral.sh/uv/) ;
+- CMake et un compilateur C : libjpeg-turbo (WP-04) et zstd sont compilés depuis leurs sources ;
 - pour le casque : `rustup target add aarch64-linux-android`, `cargo install cargo-ndk`, NDK r27c (API 32, comme
   SP-4). Sous Windows, garder le NDK et `CARGO_TARGET_DIR` sur des chemins courts : le clang du NDK échoue au-delà
-  de 260 caractères.
+  de 260 caractères. Même chose pour MSBuild, qui compile libjpeg-turbo : depuis un worktree au chemin long, prendre
+  un `CARGO_TARGET_DIR` court ;
+- sous Windows, si `nasm` est dans le PATH, CMake 4 échoue sur le SIMD de libjpeg-turbo en build debug
+  (`MSVC_RUNTIME_LIBRARY ... ASM_NASM`) : retirer nasm du PATH (libjpeg-turbo se compile alors sans SIMD x86, ce qui
+  ne change rien au casque, où NEON ne demande pas nasm).
 
 ## Header
 
