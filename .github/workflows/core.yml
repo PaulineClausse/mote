@@ -1,4 +1,4 @@
-# Core Rust (WP-02, WP-03) : tests sur PC (Linux, Windows), libmote.so arm64-v8a par cargo-ndk, mote.h à jour.
+# Core Rust (WP-02, WP-03, WP-05) : tests sur PC (Linux, Windows), libmote.so arm64-v8a par cargo-ndk, mote.h à jour.
 name: core
 
 on:
@@ -33,6 +33,11 @@ jobs:
       - run: cargo fmt --check $CORE_CRATES
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: session MCAP lue par la bibliothèque Python mcap (critère WP-05)
+        if: runner.os == 'Linux'
+        run: |
+          MOTE_KEEP_SESSION_DIR="$RUNNER_TEMP/mote-session" cargo test -p mote-capi --test session_file apres_stop
+          uv run --project ../pc python mote-mcap/tests/check_session.py "$RUNNER_TEMP/mote-session"
       - name: build hôte (commande documentée)
         run: uv run build.py --host
       - name: mote.h versionné identique au header généré

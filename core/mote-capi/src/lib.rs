@@ -239,11 +239,15 @@ unsafe fn config(cfg: *const mote_config) -> Result<core::Config, mote_status> {
         q @ 1..=100 => q,
         _ => return Err(MOTE_ERR_INVALID_ARG),
     };
+    let session_info_json = opt_str(c.session_info_json)?;
+    if core::session_meta(session_info_json.as_deref()).is_none() {
+        return Err(MOTE_ERR_INVALID_ARG);
+    }
     Ok(core::Config {
         local_dir: PathBuf::from(local_dir),
         server_addr,
         auth_token,
-        session_info_json: opt_str(c.session_info_json)?,
+        session_info_json,
         codec: c.codec,
         jpeg_quality,
         kf_min_translation_m: c.kf_min_translation_m,
@@ -290,14 +294,15 @@ unsafe fn frame(f: *const mote_frame) -> Result<core::Frame, mote_status> {
     })
 }
 
-/// Crée une session avec un encodeur fourni par l'appelant Rust (tests, futurs étages). Hors de mote.h.
+/// Crée une session avec un encodeur fourni par l'appelant Rust (tests, futurs étages), et l'écriture MCAP par
+/// défaut. Hors de mote.h.
 pub unsafe fn create_with_encoder(
     cfg: *const mote_config,
     encoder: Box<dyn core::Encoder>,
     out: *mut *mut mote_ctx,
 ) -> mote_status {
     create(cfg, out, |c| {
-        core::Core::with_stages(c, encoder, Box::new(core::NullWriter))
+        core::Core::with_stages(c, encoder, Box::new(core::McapWriter::new()))
     })
 }
 
@@ -356,6 +361,9 @@ pub unsafe extern "C" fn mote_set_intrinsics(
     guard(|| {
         let core = ctx_ref(ctx)?;
         let i = arg(intr, |i| i.struct_size)?;
+        if i.camera > 1 {
+            return Err(MOTE_ERR_INVALID_ARG);
+        }
         let dist = match (i.dist.is_null(), i.dist_len) {
             (_, 0) => Vec::new(),
             (true, _) => return Err(MOTE_ERR_INVALID_ARG),
@@ -429,7 +437,7 @@ pub unsafe extern "C" fn mote_push_depth(
     guard(|| {
         let core = ctx_ref(ctx)?;
         let d = arg(depth, |d| d.struct_size)?;
-        if d.data.is_null() || d.data_len == 0 {
+        if d.eye > 1 || d.data.is_null() || d.data_len == 0 {
             return Err(MOTE_ERR_INVALID_ARG);
         }
         let data = std::slice::from_raw_parts(d.data.cast::<u8>(), d.data_len as usize).to_vec();

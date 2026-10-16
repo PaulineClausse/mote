@@ -1,78 +1,14 @@
 //! Critère de WP-03 (TASK-85d8), testé par les fonctions extern "C" telles que l'hôte les appelle.
 
+mod common;
+
 use std::ffi::CString;
 use std::mem::size_of;
 use std::ptr;
 use std::sync::mpsc;
 
+use common::*;
 use mote::*;
-
-struct Session {
-    _dir: CString,
-    cfg: mote_config,
-}
-
-fn session(dir: &std::path::Path) -> Session {
-    let dir = CString::new(dir.to_str().unwrap()).unwrap();
-    let cfg = mote_config {
-        struct_size: size_of::<mote_config>() as u32,
-        abi_version: MOTE_ABI_VERSION,
-        local_dir: dir.as_ptr(),
-        server_addr: ptr::null(),
-        auth_token: ptr::null(),
-        session_info_json: ptr::null(),
-        codec: MOTE_CODEC_JPEG,
-        jpeg_quality: 0,
-        kf_min_translation_m: 0.0,
-        kf_min_rotation_rad: 0.0,
-        kf_min_sharpness: 0.0,
-        pair_max_dt_ns: 5_000_000,
-        flags: MOTE_FLAG_RECORD_ALL,
-    };
-    Session { _dir: dir, cfg }
-}
-
-fn tmp(name: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("mote-capi-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    d
-}
-
-const W: u32 = 8;
-const H: u32 = 4;
-
-fn pose() -> mote_pose {
-    mote_pose {
-        p: [0.0, 1.6, 0.0],
-        q: [0.0, 0.0, 0.0, 1.0],
-    }
-}
-
-fn frame(rgba: &[u8], t_ns: i64) -> mote_frame {
-    mote_frame {
-        struct_size: size_of::<mote_frame>() as u32,
-        t_ns,
-        src_time_ns: t_ns / 1000,
-        src_domain: 5,
-        width: W,
-        height: H,
-        stride: W * 4,
-        rgba: rgba.as_ptr().cast(),
-        has_pose: 1,
-        convention: 1,
-        world_from_camera: pose(),
-        has_exposure: 0,
-        exposure_ns: 0,
-        iso: 0,
-    }
-}
-
-fn stats(ctx: *mut mote_ctx) -> mote_stats {
-    let mut s: mote_stats = unsafe { std::mem::zeroed() };
-    s.struct_size = size_of::<mote_stats>() as u32;
-    assert_eq!(unsafe { mote_get_stats(ctx, &mut s) }, mote_status::MOTE_OK);
-    s
-}
 
 #[test]
 fn sequence_complete_sans_erreur() {
