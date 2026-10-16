@@ -1,0 +1,48 @@
+# Paquet Python pc/ : ingest, export, entraînement. Tests rapides à chaque push ; tests nerfstudio (installation de
+# nerfstudio et de torch, plusieurs minutes) à la main, chaque semaine, ou sur un push dont le message de commit
+# contient [nerfstudio].
+name: pc
+
+on:
+  push:
+    paths: ["pc/**", "proto/**", ".github/workflows/pc.yml"]
+  pull_request:
+    paths: ["pc/**", "proto/**", ".github/workflows/pc.yml"]
+  schedule:
+    - cron: "17 4 * * 1"   # lundi, 4 h 17 UTC
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: pytest ${{ matrix.os }}
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: pc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --locked pytest -ra
+
+  nerfstudio:
+    name: pytest nerfstudio (ADR-976d)
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[nerfstudio]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: pc
+    env:
+      MOTE_TEST_NERFSTUDIO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --locked pytest -ra tests/test_nerfstudio_load.py tests/test_train_env.py
