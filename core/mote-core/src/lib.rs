@@ -4,6 +4,7 @@
 
 pub mod clock;
 mod mcap_writer;
+mod selection;
 mod session;
 mod stages;
 mod types;
