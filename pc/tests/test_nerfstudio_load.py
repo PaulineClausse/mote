@@ -25,6 +25,11 @@ cfg = NerfstudioDataParserConfig(data=Path(sys.argv[1]), train_split_fraction=1.
                                  center_method="none", orientation_method="none", load_3D_points=False)
 out = cfg.setup().get_dataparser_outputs(split="train")
 assert all(Path(p).exists() for p in out.image_filenames)
+# Les pixels aussi : nerfstudio empile toutes les images, qui doivent avoir le même nombre de canaux (TASK-af1e).
+import torch
+from nerfstudio.data.datasets.base_dataset import InputDataset
+ds = InputDataset(out)
+assert torch.stack([ds[i]["image"] for i in range(len(ds))]).shape[-1] == 3
 print(len(out.image_filenames), tuple(out.cameras.camera_to_worlds.shape), float(out.cameras.fx[0]),
       int(out.cameras.width[0]))
 """

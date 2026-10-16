@@ -64,7 +64,18 @@ def test_images_are_written_and_decodable(out):
         if f["codec"] == "JPEG":
             assert p.suffix == ".jpg" and p.read_bytes() == src.data          # JPEG d'origine, sans réencodage
         else:
-            assert p.suffix == ".png" and img.convert("RGBA").tobytes() == src.data   # RAW_RGBA sans perte
+            # RAW_RGBA sans perte sur les canaux couleur ; l'alpha des caméras ne porte rien.
+            rgb = bytes(b for i, b in enumerate(src.data) if i % 4 != 3)
+            assert p.suffix == ".png" and img.mode == "RGB" and img.tobytes() == rgb
+
+
+def test_all_images_are_rgb_like_the_jpegs(out):
+    # Régression TASK-af1e : un PNG RGBA à côté des JPEG RGB empêche nerfstudio d'empiler les images.
+    modes = {}
+    for f in frames(out):
+        img = Image.open(out / f["file"])
+        modes[(f["codec"], img.mode, len(img.getbands()))] = modes.get((f["codec"], img.mode, len(img.getbands())), 0) + 1
+    assert modes == {("JPEG", "RGB", 3): 13, ("RAW_RGBA", "RGB", 3): 1}
 
 
 def test_intrinsics_are_scaled_to_the_image(out):

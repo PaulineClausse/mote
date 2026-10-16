@@ -7,7 +7,7 @@ conversion de repère (WP-08).
 
 Le répertoire produit :
 - `images/<left|right>/<pair_id:012d>.jpg` : le JPEG d'origine, octet pour octet (réencoder perdrait de la qualité ;
-  il est décodé pour vérification) ; `.png` pour RAW_RGBA ;
+  il est décodé pour vérification) ; `.png` en RGB pour RAW_RGBA ;
 - `frames.jsonl` : une ligne par image, dans l'ordre de capture, poses `world_from_camera` canoniques (OpenCV) ;
 - `session.json` : SessionInfo, segments, comptes, empreinte du MCAP source, conversion appliquée.
 
@@ -128,7 +128,9 @@ def ingest_replay(mcap_path: Path, out: Path) -> dict:
                     raise ValueError("taille JPEG")
                 data, ext = bytes(f.data), "jpg"
             elif f.codec == pb.RAW_RGBA:
-                img = Image.frombytes("RGBA", (f.width, f.height), bytes(f.data))
+                # En RGB comme les JPEG : nerfstudio empile les images, qui doivent avoir le même nombre de canaux
+                # (TASK-af1e). L'alpha des caméras ne porte rien.
+                img = Image.frombytes("RGBA", (f.width, f.height), bytes(f.data)).convert("RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="PNG", compress_level=6)
                 data, ext = buf.getvalue(), "png"
