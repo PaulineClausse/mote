@@ -175,6 +175,8 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     rep += ["Erreur de reprojection avec la pose MRUK convertie (RMS par image, px) :", "",
             "| Œil | Immobiles : médiane / p95 | En mouvement : médiane / p95 | Résidu PnP médian |", "|---|---|---|---|"]
     reproj = {}
+    worst = []
+    t_first = {(lb, e): min(fr.t for fr in L.load_frames(s, e)) for lb, s in sessions.items() for e in EYES}
     for e in EYES:
         errs_s, errs_m, pnp_r = [], [], []
         for (lb, ee), lst in obs.items():
@@ -189,13 +191,29 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
                 err = float(np.sqrt(np.mean(np.sum((uv - o.corners) ** 2, axis=1))))
                 (errs_s if is_static(o) else errs_m).append(err)
                 pnp_r.append(o.rms)
+                worst.append((err, lb, e, o.t - t_first[(lb, e)], o.frame.updated, float(np.linalg.norm(o.omega)),
+                              is_static(o), o.file))
         reproj[e] = {"static_med": pct(errs_s, 50), "static_p95": pct(errs_s, 95),
                      "moving_med": pct(errs_m, 50), "moving_p95": pct(errs_m, 95), "pnp_med": pct(pnp_r, 50)}
         r = reproj[e]
         rep.append(f"| {e} | {f(r['static_med'])} / {f(r['static_p95'])} | {f(r['moving_med'])} / "
                    f"{f(r['moving_p95'])} | {f(r['pnp_med'])} |")
     res["reprojection_px"] = reproj
-    rep.append("")
+    worst.sort(key=lambda w: -w[0])
+    n_out = sum(1 for w in worst if w[0] > 20)
+    rep += ["", f"Images reprojetées à plus de 20 px : {n_out} sur {len(worst)}, dont "
+            f"{sum(1 for w in worst if w[0] > 20 and not w[4])} sans pose MRUK neuve (is_updated_this_frame = false). "
+            "Les dix pires :", "",
+            "| Erreur (px) | Session | Œil | Depuis le début (s) | Pose neuve | |ω| (rad/s) | Immobile | Image |",
+            "|---|---|---|---|---|---|---|---|"]
+    for err, lb, e, dt, upd, om, st_, name in worst[:10]:
+        rep.append(f"| {f(err, 1)} | {lb} | {e} | {f(dt, 2)} | {'oui' if upd else 'non'} | {f(om)} | "
+                   f"{'oui' if st_ else 'non'} | {name} |")
+    clean = [w for w in worst if w[4]]
+    res["reprojection_updated_only"] = {"n": len(clean), "p50": pct([w[0] for w in clean], 50),
+                                        "p95": pct([w[0] for w in clean], 95)}
+    rep += ["", f"Sur les seules images avec pose MRUK neuve : médiane {f(pct([w[0] for w in clean], 50))} px, "
+            f"p95 {f(pct([w[0] for w in clean], 95))} px ({len(clean)} images).", ""]
 
     # --- 2. Synchronisation image/pose. D'abord l'instant de prise réel (δ), sur le suivi du casque : la vitesse
     # angulaire qui sert ensuite à τ et à la stéréo doit être prise à cet instant, pas à l'horodatage, sans quoi
@@ -233,7 +251,10 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     rep += ["τ : décalage de la pose MRUK par rapport à l'instant où l'image a été prise (τ > 0 : pose plus tardive). "
             f"Estimé par l'écart de rotation entre pose MRUK et pose du damier, rapporté à la vitesse angulaire "
             f"à l'instant de prise (δ ci-dessus), sur les images où |ω| ≥ {min_omega} rad/s.", "",
-            "| Œil | τ (ms) | IC 95 % (ms) | Images | Rejetées | Résidu médian (mrad) |", "|---|---|---|---|---|---|"]
+            "Un biais de rotation constant de la pose MRUK (erreur d'extrinsèque) est estimé en même temps, sans quoi "
+            "il passerait pour un retard.", "",
+            "| Œil | τ (ms) | IC 95 % (ms) | Images | Rejetées | Résidu médian (mrad) | Biais constant (mrad) |",
+            "|---|---|---|---|---|---|---|"]
     res["tau"] = {}
     for e in EYES:
         errs, oms = [], []
@@ -245,10 +266,11 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
                 R_m, _ = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
                 errs.append(L.log_rot(R_v @ R_m.T))
                 oms.append(o.omega)
-        r = L.lag_from_rotation_errors(errs, oms, min_omega, sign=-1.0) if errs else None
+        r = L.lag_from_rotation_errors(errs, oms, min_omega, sign=-1.0, intercept=True) if errs else None
         res["tau"][e] = r
         rep.append(f"| {e} | {f(r['tau_ms'])} | {f(r['ci95_ms'][0])} à {f(r['ci95_ms'][1])} | {r['n']} | "
-                   f"{r['rejected']} | {f(r['resid_mrad_med'])} |" if r else f"| {e} | - | - | trop peu d'images | | |")
+                   f"{r['rejected']} | {f(r['resid_mrad_med'])} | {f(r['bias_mrad'])} |" if r
+                   else f"| {e} | - | - | trop peu d'images | | | |")
 
     # --- 3. Gauche / droite (H-09)
     rep += ["## 3. Synchronisation gauche/droite", ""]

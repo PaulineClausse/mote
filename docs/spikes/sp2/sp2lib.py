@@ -109,6 +109,7 @@ class Frame:
     pos: np.ndarray          # pose MRUK, Unity
     quat: np.ndarray
     pose_ok: bool
+    updated: bool = True     # is_updated_this_frame : MRUK a fourni une pose neuve pour cette image
 
 
 @dataclass
@@ -134,7 +135,7 @@ def load_frames(session: Path, eye: str) -> list[Frame]:
             eye=eye, file=r["file_name"], t=int(r["timestamp_us_realtime"]) * 1e-6,
             pos=np.array([float(r[f"pose_pos_{a}"]) for a in "xyz"]),
             quat=np.array([float(r[f"pose_rot_{a}"]) for a in "xyzw"]),
-            pose_ok=_b(r.get("pose_ok", "true"))))
+            pose_ok=_b(r.get("pose_ok", "true")), updated=_b(r.get("is_updated_this_frame", "true"))))
     return out
 
 
@@ -335,33 +336,46 @@ def vision_camera(o: Obs, R_wb, t_wb):
     return R, t_wb - R @ o.t_cb
 
 
-def lag_from_rotation_errors(errs, omegas, min_omega: float, sign: float = 1.0, boot: int = 400, seed: int = 0):
-    """Décalage τ (s) tel que err ≈ sign · ω τ, moindres carrés sur les images où |ω| >= min_omega, avec rejet des
-    aberrants (3 MAD) et intervalle bootstrap à 95 %."""
-    E, W = np.asarray(errs), np.asarray(omegas)
+def lag_from_rotation_errors(errs, omegas, min_omega: float, sign: float = 1.0, boot: int = 400, seed: int = 0,
+                             intercept: bool = False):
+    """Décalage τ (s) tel que err ≈ b + sign · ω τ, moindres carrés sur les images où |ω| >= min_omega, avec rejet
+    des aberrants (3 MAD des résidus) et intervalle bootstrap à 95 %. Avec `intercept`, b est un biais de rotation
+    constant estimé en même temps (par exemple une erreur d'extrinsèque) ; sans, b = 0. Sans ce terme, un biais
+    constant se projette sur ω et passe pour un retard dès que les rotations ne sont pas symétriques."""
+    E, W = np.asarray(errs, dtype=float), np.asarray(omegas, dtype=float)
     m = np.linalg.norm(W, axis=1) >= min_omega
     E, W = E[m], W[m]
     if len(E) < 5:
         return None
-    per = sign * np.sum(E * W, axis=1) / np.sum(W * W, axis=1)
-    med = np.median(per)
-    mad = np.median(np.abs(per - med)) * 1.4826 + 1e-6
-    keep = np.abs(per - med) <= 3 * mad
-    E, W = E[keep], W[keep]
 
     def fit(e, w):
-        return sign * np.sum(e * w) / np.sum(w * w)
+        n = len(e)
+        cols = [sign * w.reshape(-1)]
+        if intercept:
+            for k in range(3):
+                c = np.zeros((n, 3))
+                c[:, k] = 1
+                cols.append(c.reshape(-1))
+        A = np.stack(cols, axis=1)
+        x, *_ = np.linalg.lstsq(A, e.reshape(-1), rcond=None)
+        b = x[1:4] if intercept else np.zeros(3)
+        return x[0], b
 
-    tau = fit(E, W)
+    tau, b = fit(E, W)
+    r = np.linalg.norm(E - b - sign * W * tau, axis=1)
+    med = np.median(r)
+    keep = r <= med + 3 * np.median(np.abs(r - med)) * 1.4826 + 1e-9
+    E, W = E[keep], W[keep]
+    tau, b = fit(E, W)
     rng = np.random.default_rng(seed)
     bs = []
     for _ in range(boot):
         k = rng.integers(0, len(E), len(E))
-        bs.append(fit(E[k], W[k]))
-    resid = np.linalg.norm(E - sign * W * tau, axis=1)
+        bs.append(fit(E[k], W[k])[0])
+    resid = np.linalg.norm(E - b - sign * W * tau, axis=1)
     return {"tau_ms": tau * 1e3, "ci95_ms": (float(np.percentile(bs, 2.5) * 1e3), float(np.percentile(bs, 97.5) * 1e3)),
             "n": int(len(E)), "rejected": int((~keep).sum()),
-            "resid_mrad_med": float(np.median(resid) * 1e3)}
+            "resid_mrad_med": float(np.median(resid) * 1e3), "bias_mrad": float(np.linalg.norm(b) * 1e3)}
 
 
 def search_lag(fn, lo: float = -0.1, hi: float = 0.1, step: float = 0.0005):

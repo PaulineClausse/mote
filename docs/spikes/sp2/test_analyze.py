@@ -59,7 +59,7 @@ def head(t: float, t_start: float):
 
 
 def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.002, flip=False, k1=0.0,
-                  duration=16.0, fps=15.0, noise=0.15, seed=0, origin=(0.0, 0.0, 0.0)):
+                  duration=16.0, fps=15.0, noise=0.15, seed=0, origin=(0.0, 0.0, 0.0), right_bias_deg=0.0):
     """`origin` (lacet, x, z) : monde propre à la session. QuestRealityCapture remet l'origine du suivi à zéro à chaque
     session : poses du casque et poses MRUK sont écrites dans ce monde-là, le damier ne bouge pas physiquement."""
     rng = np.random.default_rng(seed)
@@ -108,6 +108,9 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
             # Pose MRUK : celle de la caméra à l'instant capture + tau (l'œil droit à l'instant du gauche + tau).
             R_m, t_m = cam_pose(eye, ts + delta + tau)
             R_m, t_m = R_g @ R_m, R_g @ t_m + t_g
+            if eye == "right" and right_bias_deg:
+                # Extrinsèque MRUK de l'œil droit fausse d'un angle constant, autour de l'axe des lacets.
+                R_m = R_m @ L.exp_rot([0, math.radians(right_bias_deg), 0])
             q_u = L.mat_to_quat(L.S @ R_m @ D_SPEC)
             p_u = L.S @ t_m
             rows.append([k + 1, name_, int(ts * 1e3), round(ts * 1e6), *p_u, *q_u, "true"])
@@ -132,7 +135,8 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
 def spec_result(tmp_path_factory):
     root = tmp_path_factory.mktemp("sp2")
     # Deux sessions, deux mondes : l'analyse doit situer le damier dans chacun.
-    sessions = {"B": write_session(root, "B", seed=1), "D": write_session(root, "D", seed=2, origin=(0.8, 0.3, -0.2))}
+    sessions = {"B": write_session(root, "B", seed=1, right_bias_deg=0.2),
+                "D": write_session(root, "D", seed=2, origin=(0.8, 0.3, -0.2), right_bias_deg=0.2)}
     return analyze.analyze(sessions, SQUARE, COLS, ROWS, workers=1)[1]
 
 
@@ -147,6 +151,26 @@ def test_retrouve_la_formule_de_la_spec(spec_result):
 
 def test_retrouve_le_decalage_pose_mruk(spec_result):
     assert spec_result["tau"]["left"]["tau_ms"] == pytest.approx(4.0, abs=1.0)
+
+
+def test_biais_constant_de_l_oeil_droit_sans_effet_sur_tau(spec_result):
+    # Pose MRUK de l'œil droit : instant du gauche + τ, image droite prise 2 ms après la gauche, d'où τ - 2 ms.
+    r = spec_result["tau"]["right"]
+    assert r["tau_ms"] == pytest.approx(2.0, abs=1.5)
+    assert r["bias_mrad"] == pytest.approx(math.radians(0.2) * 1e3, abs=1.0)
+
+
+def test_estimateur_separe_biais_et_retard():
+    # Rotations toutes dans le même sens : un biais constant se confond avec un retard sans terme de biais.
+    rng = np.random.default_rng(0)
+    W = np.column_stack([np.zeros(50), rng.uniform(0.5, 2.0, 50), np.zeros(50)])
+    b = np.array([0.0, 0.004, 0.0])
+    E = b - W * 0.003
+    sans = L.lag_from_rotation_errors(E, W, 0.3, sign=-1.0)
+    avec = L.lag_from_rotation_errors(E, W, 0.3, sign=-1.0, intercept=True)
+    assert abs(sans["tau_ms"] - 3.0) > 1.0
+    assert avec["tau_ms"] == pytest.approx(3.0, abs=0.01)
+    assert avec["bias_mrad"] == pytest.approx(4.0, abs=0.01)
 
 
 def test_retrouve_l_instant_de_prise(spec_result):
