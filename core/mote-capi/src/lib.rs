@@ -266,28 +266,24 @@ fn pose(convention: u32, p: &mote_pose) -> core::ConventionPose {
     }
 }
 
-/// Copie une image de l'hôte en RGBA compact, en retirant le padding de `stride`.
-unsafe fn frame(f: *const mote_frame) -> Result<core::Frame, mote_status> {
+/// Vue sur une image de l'hôte, valide le temps de l'appel ; le core ne copie que les paires retenues.
+unsafe fn frame<'a>(f: *const mote_frame) -> Result<core::FrameView<'a>, mote_status> {
     let f = arg(f, |f| f.struct_size)?;
     let row = f.width as usize * 4;
     if f.rgba.is_null() || f.width == 0 || f.height == 0 || (f.stride as usize) < row {
         return Err(MOTE_ERR_INVALID_ARG);
     }
-    let src = std::slice::from_raw_parts(
+    let rgba = std::slice::from_raw_parts(
         f.rgba.cast::<u8>(),
         f.stride as usize * (f.height as usize - 1) + row,
     );
-    let mut rgba = Vec::with_capacity(row * f.height as usize);
-    for y in 0..f.height as usize {
-        let start = y * f.stride as usize;
-        rgba.extend_from_slice(&src[start..start + row]);
-    }
-    Ok(core::Frame {
+    Ok(core::FrameView {
         t_ns: f.t_ns,
         src_time_ns: f.src_time_ns,
         src_domain: f.src_domain,
         width: f.width,
         height: f.height,
+        stride: f.stride as usize,
         rgba,
         world_from_camera: (f.has_pose != 0).then(|| pose(f.convention, &f.world_from_camera)),
         exposure_ns: (f.has_exposure != 0).then_some(f.exposure_ns),
@@ -403,7 +399,7 @@ pub unsafe extern "C" fn mote_push_pair(
         }
         let core = ctx_ref(ctx)?;
         let (l, r) = (frame(left)?, frame(right)?);
-        let kept = core.push_pair(l, r)?;
+        let kept = core.push_pair(&l, &r)?;
         if let Some(k) = out_kept.as_mut() {
             *k = kept as u32;
         }

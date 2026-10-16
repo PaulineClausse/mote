@@ -57,6 +57,48 @@ pub struct Frame {
     pub world_from_camera: Option<ConventionPose>,
     pub exposure_ns: Option<i64>,
     pub iso: u32,
+    /// Netteté mesurée par la sélection (`ImageFrame.blur_score` : plus grand = plus net).
+    pub blur_score: f32,
+}
+
+/// Une image telle que l'hôte la passe, lue dans son buffer sans copie : `stride` octets par ligne.
+#[derive(Clone, Copy, Debug)]
+pub struct FrameView<'a> {
+    pub t_ns: i64,
+    pub src_time_ns: i64,
+    pub src_domain: u32,
+    pub width: u32,
+    pub height: u32,
+    pub stride: usize,
+    /// Au moins `stride * (height - 1) + width * 4` octets.
+    pub rgba: &'a [u8],
+    pub world_from_camera: Option<ConventionPose>,
+    pub exposure_ns: Option<i64>,
+    pub iso: u32,
+}
+
+impl FrameView<'_> {
+    /// Copie l'image en RGBA compact, sans le padding de `stride`.
+    pub fn to_frame(&self, blur_score: f32) -> Frame {
+        let row = self.width as usize * 4;
+        let mut rgba = Vec::with_capacity(row * self.height as usize);
+        for y in 0..self.height as usize {
+            let start = y * self.stride;
+            rgba.extend_from_slice(&self.rgba[start..start + row]);
+        }
+        Frame {
+            t_ns: self.t_ns,
+            src_time_ns: self.src_time_ns,
+            src_domain: self.src_domain,
+            width: self.width,
+            height: self.height,
+            rgba,
+            world_from_camera: self.world_from_camera,
+            exposure_ns: self.exposure_ns,
+            iso: self.iso,
+            blur_score,
+        }
+    }
 }
 
 /// Paire stéréo retenue, en attente d'encodage.
@@ -159,7 +201,8 @@ pub enum Record {
     HmdPose(HmdPose),
     Depth(Depth),
     Event(Event),
-    Pair(EncodedPair),
+    /// En boîte : une paire est bien plus grosse que les autres records.
+    Pair(Box<EncodedPair>),
     Stats(Stats),
 }
 

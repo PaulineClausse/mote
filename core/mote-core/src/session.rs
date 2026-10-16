@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::clock;
 use crate::mcap_writer::McapWriter;
+use crate::selection::{sharpness, Selector};
 use crate::stages::{Encoder, JpegEncoder, RawEncoder, Writer};
 use crate::types::*;
 
@@ -96,6 +97,7 @@ enum State {
 
 pub struct Core {
     config: Config,
+    selector: Mutex<Selector>,
     state: Mutex<State>,
     shared: Arc<Shared>,
 }
@@ -124,6 +126,7 @@ impl Core {
 
     pub fn with_stages(config: Config, encoder: Box<dyn Encoder>, writer: Box<dyn Writer>) -> Self {
         Core {
+            selector: Mutex::new(Selector::new(&config)),
             config,
             state: Mutex::new(State::Created { encoder, writer }),
             shared: Arc::new(Shared {
@@ -210,8 +213,9 @@ impl Core {
         Ok(())
     }
 
-    /// Paire appariée par l'hôte. Renvoie `true` si elle est retenue et mise en file d'encodage.
-    pub fn push_pair(&self, left: Frame, right: Frame) -> Result<bool> {
+    /// Paire appariée par l'hôte. La sélection lit les buffers de l'hôte ; seule une paire retenue est copiée et
+    /// mise en file d'encodage. Renvoie `true` si elle l'est.
+    pub fn push_pair(&self, left: &FrameView, right: &FrameView) -> Result<bool> {
         let sender = self.pairs_sender()?;
         let c = &self.shared.counters;
         c.pairs_pushed.fetch_add(1, Ordering::Relaxed);
@@ -220,14 +224,28 @@ impl Core {
             self.emit(EVENT_PAIR_REJECTED_UNSYNC, format!("dt={dt}ns"));
             return Ok(false);
         }
-        // Sélection des paires : WP-09. D'ici là, toute paire synchronisée est retenue.
+        let (sl, sr) = (sharpness(left), sharpness(right));
+        let pose = left.world_from_camera.map(|p| p.pose);
+        // Le verrou couvre la décision et la mise en file : deux threads de l'hôte ne retiennent pas deux paires
+        // contre la même référence.
+        let mut selector = lock(&self.selector);
+        if !selector.wants(pose.as_ref(), sl, sr) {
+            return Ok(false);
+        }
         let id = c.next_pair_id.fetch_add(1, Ordering::Relaxed);
-        match sender.try_send(Pair { id, left, right }) {
+        let pair = Pair {
+            id,
+            left: left.to_frame(sl),
+            right: right.to_frame(sr),
+        };
+        match sender.try_send(pair) {
             Ok(()) => {
+                selector.kept(pose.as_ref());
                 c.pairs_kept.fetch_add(1, Ordering::Relaxed);
                 Ok(true)
             }
             Err(TrySendError::Full(p)) => {
+                drop(selector);
                 c.pairs_dropped.fetch_add(1, Ordering::Relaxed);
                 self.emit(EVENT_PAIR_DROPPED_BUSY, format!("t_ns={}", p.left.t_ns));
                 Err(Error::Busy)
@@ -328,7 +346,7 @@ fn encode_loop(
         };
         avg.store(next.to_bits(), Ordering::Relaxed);
         // Envoi bloquant : la contre-pression reste entre threads du core, jamais sur l'hôte.
-        if out.send(Record::Pair(encoded)).is_err() {
+        if out.send(Record::Pair(Box::new(encoded))).is_err() {
             return;
         }
     }

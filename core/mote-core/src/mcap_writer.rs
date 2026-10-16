@@ -122,8 +122,7 @@ fn image(pair_id: u64, f: EncodedFrame) -> v1::ImageFrame {
         world_from_camera,
         exposure_ns: s.exposure_ns,
         iso: s.exposure_ns.map(|_| s.iso),
-        // Score de netteté : WP-09.
-        blur_score: 0.0,
+        blur_score: s.blur_score,
     }
 }
 
