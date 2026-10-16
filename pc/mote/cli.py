@@ -1,5 +1,5 @@
-"""Ligne de commande `mote` (SPEC-834a) : `mote ingest --replay`, `mote export`. Les autres sous-commandes (train,
-eval, validate) viendront avec leurs work packages."""
+"""Ligne de commande `mote` (SPEC-834a) : `mote ingest --replay`, `mote export`, `mote train`. Les autres
+sous-commandes (eval, validate) viendront avec leurs work packages."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +38,18 @@ def _export(a: argparse.Namespace) -> int:
     return 0
 
 
+def _train(a: argparse.Namespace) -> int:
+    from mote.train.launch import train
+    try:
+        ckpt = train(a.dataset, a.runs or a.dataset / "runs", method=a.method, iterations=a.iterations,
+                     device=a.device)
+    except RuntimeError as e:
+        print(f"mote train : {e}", file=sys.stderr)
+        return 4
+    print(ckpt)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="mote", description=f"mote {mote.__version__}, côté PC")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -50,6 +62,13 @@ def main(argv: list[str] | None = None) -> int:
     pe.add_argument("--format", choices=("nerfstudio", "colmap", "all"), default="all")
     pe.add_argument("--out", type=Path, help="par défaut <dataset>/export")
     pe.set_defaults(fn=_export)
+    pt = sub.add_parser("train", help="dataset -> entraînement nerfstudio, dans son propre environnement (ADR-976d)")
+    pt.add_argument("dataset", type=Path)
+    pt.add_argument("--method", default="splatfacto", help="méthode ns-train (défaut : splatfacto)")
+    pt.add_argument("--iterations", type=int, default=30000)
+    pt.add_argument("--device", default="cuda", choices=("cuda", "cpu", "mps"))
+    pt.add_argument("--runs", type=Path, help="par défaut <dataset>/runs")
+    pt.set_defaults(fn=_train)
     a = ap.parse_args(argv)
     return a.fn(a)
 
