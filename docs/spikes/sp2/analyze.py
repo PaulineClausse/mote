@@ -147,16 +147,64 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
         sp = L.spread(*L.world_board(pick, D))
         return sp["R"], sp["t"]
 
-    boards, lr = {}, []
-    for lb in sessions:
-        bl = board_for(obs.get((lb, "left"), []))
-        br = board_for(obs.get((lb, "right"), []))
-        if bl is not None:
-            boards[lb] = bl
-            if br is not None:
-                lr.append((L.angle_deg(br[0] @ bl[0].T), float(np.linalg.norm(br[1] - bl[1]) * 1e3)))
-        elif br is not None:
-            boards[lb] = br
+    def compute_boards():
+        boards, lr = {}, []
+        for lb in sessions:
+            bl = board_for(obs.get((lb, "left"), []))
+            br = board_for(obs.get((lb, "right"), []))
+            if bl is not None:
+                boards[lb] = bl
+                if br is not None:
+                    lr.append((L.angle_deg(br[0] @ bl[0].T), float(np.linalg.norm(br[1] - bl[1]) * 1e3)))
+            elif br is not None:
+                boards[lb] = br
+        return boards, lr
+
+    boards, lr = compute_boards()
+    # Numérotation des coins : sur une petite part des images, le détecteur retourne la grille (damier à 180° de la
+    # pose de sa session, alors que la pose MRUK concorde avec le casque). On essaie les autres numérotations et on
+    # garde celle qui remet le damier en place ; sinon l'image est écartée. Puis la pose du damier est réestimée.
+    renum = {"tout": 0, "lignes": 0, "colonnes": 0}
+    dropped = 0
+    for (lb, e), lst in list(obs.items()):
+        if lb not in boards:
+            continue
+        K = cams[(lb, e)].K.copy()
+        if best_flip:
+            K[1, 2] = cams[(lb, e)].height - 1 - K[1, 2]
+        R_b, t_b = boards[lb]
+        kept = []
+        for o in lst:
+            R_wc, t_wc = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
+
+            def dev(R_cb, t_cb):
+                return (L.angle_deg(R_wc @ R_cb @ R_b.T),
+                        float(np.linalg.norm(R_wc @ t_cb + t_wc - t_b) * 1e3))
+
+            if dev(o.R_cb, o.t_cb)[0] < 30:
+                kept.append(o)
+                continue
+            best = None
+            for name, c in L.reorderings(o.corners, cols).items():
+                r = L.pnp(obj, c, K)
+                if r is None:
+                    continue
+                a2, d2 = dev(r[0], r[1])
+                if best is None or a2 < best[0]:
+                    best = (a2, d2, name, c, r)
+            if best is not None and best[0] < 5 and best[1] < 50:
+                o.R_cb, o.t_cb, o.rms = best[4]
+                o.corners = best[3]
+                renum[best[2]] += 1
+                kept.append(o)
+            else:
+                dropped += 1
+        obs[(lb, e)] = kept
+    boards, lr = compute_boards()
+    res["ordering"] = {"renumbered": renum, "dropped": dropped}
+    rep += [f"Numérotation des coins corrigée sur {sum(renum.values())} images (tout inversée : {renum['tout']}, "
+            f"lignes : {renum['lignes']}, colonnes : {renum['colonnes']}), {dropped} écartées faute de numérotation "
+            "cohérente.", ""]
     missing = [lb for lb in sessions if lb not in boards]
     if missing:
         rep += [f"Sessions sans assez d'images lentes pour situer le damier, écartées : {', '.join(missing)}.", ""]
@@ -214,7 +262,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     for e in EYES:
         st_e = [o for (lb, ee), lst in obs.items() if ee == e for o in lst if is_static(o)]
         if len(st_e) >= 3:
-            Rx = L.mean_rotation([hmds[o.session].rot_at(o.t).T @ L.unity_to_cv(o.frame.pos, o.frame.quat, D)[0]
+            Rx = L.robust_mean_rotation([hmds[o.session].rot_at(o.t).T @ L.unity_to_cv(o.frame.pos, o.frame.quat, D)[0]
                                   for o in st_e])
             tx = np.median([hmds[o.session].rot_at(o.t).T @ (L.unity_to_cv(o.frame.pos, o.frame.quat, D)[1] -
                                                               hmds[o.session].pos_at(o.t)) for o in st_e], axis=0)
@@ -256,8 +304,8 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
         vis = {id(o): L.vision_camera(o, *bw(o))[0] for o in allo}
         mr = {id(o): L.unity_to_cv(o.frame.pos, o.frame.quat, D)[0] for o in allo}
         hm = {o.session: hmds[o.session] for o in allo}
-        X_v = L.mean_rotation([hm[o.session].rot_at(o.t).T @ vis[id(o)] for o in st])
-        X_m = L.mean_rotation([hm[o.session].rot_at(o.t).T @ mr[id(o)] for o in st])
+        X_v = L.robust_mean_rotation([hm[o.session].rot_at(o.t).T @ vis[id(o)] for o in st])
+        X_m = L.robust_mean_rotation([hm[o.session].rot_at(o.t).T @ mr[id(o)] for o in st])
 
         def cost(d, X, poses):
             return float(np.median([L.angle_deg(poses[id(o)].T @ hm[o.session].rot_at(o.t + d) @ X) for o in mv]))
@@ -313,7 +361,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     st_b = [p for p in both if is_static(p["left"])]
     rep.append("")
     if len(st_b) >= 3 and len(both) >= 8:
-        R_lr0 = L.mean_rotation([L.vision_camera(p["left"], *bw(p["left"]))[0].T @ L.vision_camera(p["right"], *bw(p["right"]))[0]
+        R_lr0 = L.robust_mean_rotation([L.vision_camera(p["left"], *bw(p["left"]))[0].T @ L.vision_camera(p["right"], *bw(p["right"]))[0]
                                  for p in st_b])
         errs, oms = [], []
         for p in both:

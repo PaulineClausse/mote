@@ -59,7 +59,8 @@ def head(t: float, t_start: float):
 
 
 def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.002, flip=False, k1=0.0,
-                  duration=16.0, fps=15.0, noise=0.15, seed=0, origin=(0.0, 0.0, 0.0), right_bias_deg=0.0):
+                  duration=16.0, fps=15.0, noise=0.15, seed=0, origin=(0.0, 0.0, 0.0), right_bias_deg=0.0,
+                  bad_order=0.0):
     """`origin` (lacet, x, z) : monde propre à la session. QuestRealityCapture remet l'origine du suivi à zéro à chaque
     session : poses du casque et poses MRUK sont écrites dans ce monde-là, le damier ne bouge pas physiquement."""
     rng = np.random.default_rng(seed)
@@ -104,6 +105,9 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
             if flip:
                 uv[:, 1] = 1280 - 1 - uv[:, 1]
             if np.all((uv > 5) & (uv < 1275)):
+                if rng.random() < bad_order:
+                    # Grille retournée par le détecteur (constaté sur environ 2 % des images réelles).
+                    uv = uv.reshape(ROWS, COLS, 2)[::-1].reshape(-1, 2)
                 corners[eye][name_] = uv
             # Pose MRUK : celle de la caméra à l'instant capture + tau (l'œil droit à l'instant du gauche + tau).
             R_m, t_m = cam_pose(eye, ts + delta + tau)
@@ -135,8 +139,8 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
 def spec_result(tmp_path_factory):
     root = tmp_path_factory.mktemp("sp2")
     # Deux sessions, deux mondes : l'analyse doit situer le damier dans chacun.
-    sessions = {"B": write_session(root, "B", seed=1, right_bias_deg=0.2),
-                "D": write_session(root, "D", seed=2, origin=(0.8, 0.3, -0.2), right_bias_deg=0.2)}
+    sessions = {"B": write_session(root, "B", seed=1, right_bias_deg=0.2, bad_order=0.04),
+                "D": write_session(root, "D", seed=2, origin=(0.8, 0.3, -0.2), right_bias_deg=0.2, bad_order=0.04)}
     return analyze.analyze(sessions, SQUARE, COLS, ROWS, workers=1)[1]
 
 
@@ -146,6 +150,12 @@ def test_retrouve_la_formule_de_la_spec(spec_result):
     # Les images lentes qui choisissent la formule bougent un peu : environ 0,2 rad/s pendant ~34 ms de décalage.
     assert c["pos_p95_mm"] < 2.0 and c["rot_p95_deg"] < 0.5
     assert c["margin"] >= 3, "la formule suivante doit disperser nettement plus"
+    assert spec_result["reprojection_px"]["left"]["static_p95"] < 1.0
+
+
+def test_numerotations_retournees_corrigees(spec_result):
+    o = spec_result["ordering"]
+    assert o["renumbered"]["lignes"] >= 5 and o["dropped"] == 0
     assert spec_result["reprojection_px"]["left"]["static_p95"] < 1.0
 
 

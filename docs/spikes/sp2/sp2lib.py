@@ -94,6 +94,21 @@ def mean_rotation(Rs) -> np.ndarray:
     return R
 
 
+def robust_mean_rotation(Rs, tol_deg: float = 5.0) -> np.ndarray:
+    """Moyenne de rotations insensible à quelques aberrants (par exemple un damier retourné de 180°) : départ sur
+    l'échantillon le plus central, puis moyenne des seuls échantillons à moins de `tol_deg`, deux fois."""
+    Rs = list(Rs)
+    probe = Rs if len(Rs) <= 200 else [Rs[i] for i in np.linspace(0, len(Rs) - 1, 200).astype(int)]
+    center = min(probe, key=lambda R: np.median([angle_deg(R @ Q.T) for Q in probe]))
+    Rm = center
+    for _ in range(2):
+        inl = [R for R in Rs if angle_deg(R @ Rm.T) <= tol_deg]
+        if len(inl) < max(3, len(Rs) // 3):
+            break
+        Rm = mean_rotation(inl)
+    return Rm
+
+
 def unity_to_cv(pos, quat, cam_sign: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """world_from_camera canonique d'une pose Unity : R = S R_u D, t = S p."""
     return S @ quat_to_mat(quat) @ cam_sign, S @ np.asarray(pos, dtype=float)
@@ -273,6 +288,14 @@ def detect_session(session: Path, eye: str, cam: Camera, pattern: tuple[int, int
     return out
 
 
+def reorderings(corners: np.ndarray, cols: int) -> dict:
+    """Les autres numérotations possibles de la grille de coins : tout inversée (rotation de 180° dans le plan),
+    lignes inversées ou colonnes inversées (damier vu « de dos » : une seule direction retournée)."""
+    g = corners.reshape(-1, cols, 2)
+    return {"tout": g[::-1, ::-1].reshape(-1, 2), "lignes": g[::-1, :].reshape(-1, 2),
+            "colonnes": g[:, ::-1].reshape(-1, 2)}
+
+
 def flip_v(corners: np.ndarray, cam: Camera) -> np.ndarray:
     c = corners.copy()
     c[:, 1] = cam.height - 1 - c[:, 1]
@@ -319,7 +342,7 @@ class Obs:
 
 
 def spread(Rs, ts) -> dict:
-    Rm = mean_rotation(Rs)
+    Rm = robust_mean_rotation(Rs)
     tm = np.median(ts, axis=0)
     da = np.array([angle_deg(R @ Rm.T) for R in Rs])
     dp = np.linalg.norm(np.asarray(ts) - tm, axis=1) * 1e3
@@ -334,7 +357,7 @@ def pooled_spread(groups) -> dict:
     for Rs, ts in groups:
         if len(Rs) < 3:
             continue
-        Rm = mean_rotation(Rs)
+        Rm = robust_mean_rotation(Rs)
         tm = np.median(ts, axis=0)
         da += [angle_deg(R @ Rm.T) for R in Rs]
         dp += list(np.linalg.norm(np.asarray(ts) - tm, axis=1) * 1e3)
