@@ -65,7 +65,7 @@ def build_obs(sessions, cams, hmds, dets, obj, flip):
     return out
 
 
-def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, workers: int = 0,
+def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, workers: int = 4,
             static_omega: float = 0.05, static_speed: float = 0.01, min_omega: float = 0.3,
             select_omega: float = 0.2, select_speed: float = 0.05):
     obj = L.board_points(cols, rows, square_mm)
@@ -98,7 +98,9 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     # --- 1. Formule de conversion
     rep += ["## 1. Conversion Unity -> canonique", "",
             "Damier immobile : sa pose dans le monde, calculée image par image avec la pose MRUK convertie, doit rester "
-            f"la même. Dispersion sur les images immobiles ou lentes (|ω| < {select_omega} rad/s, "
+            f"la même. Chaque session a son propre monde (origine remise à zéro au début de la capture) : la "
+            f"dispersion se mesure autour de la pose propre à chaque session. Images immobiles ou lentes "
+            f"(|ω| < {select_omega} rad/s, "
             f"< {select_speed} m/s), œil gauche : plus les poses sont variées, plus la mesure départage les formules.",
             "",
             "| Côté caméra | Image retournée | Images | Rotation médiane / p95 (°) | Position médiane / p95 (mm) |",
@@ -110,8 +112,9 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
         if len(st) < 3:
             continue
         for name, D in L.CAM_SIGNS.items():
-            sp = L.spread(*L.world_board(st, D))
-            cands.append((sp["pos_p95_mm"] + 10 * sp["rot_p95_deg"], name, flip, sp, len(st)))
+            sp = L.pooled_spread([L.world_board([o for o in st if o.session == lb], D) for lb in sessions])
+            if sp:
+                cands.append((sp["pos_p95_mm"] + 10 * sp["rot_p95_deg"], name, flip, sp, sp["n"]))
     cands.sort(key=lambda c: c[0])
     for _, name, flip, sp, n in cands:
         mark = " (hypothèse de la spec)" if (name, flip) == L.SPEC_CANDIDATE else ""
@@ -133,18 +136,40 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
             f"La suivante disperse {f(margin, 1)} fois plus"
             f"{' : départage net' if margin >= 3 else ' : départage FAIBLE, poses trop peu variées'}.", ""]
 
-    # Pose du damier : images immobiles de l'œil gauche ; l'œil droit doit retrouver la même.
-    st_l = [o for (lb, e), lst in obs.items() if e == "left" for o in lst if is_static(o)]
-    st_r = [o for (lb, e), lst in obs.items() if e == "right" for o in lst if is_static(o)]
-    B = L.spread(*L.world_board(st_l, D))
-    R_wb, t_wb = B["R"], B["t"]
-    if len(st_r) >= 3:
-        Br = L.spread(*L.world_board(st_r, D))
-        d_ang = L.angle_deg(Br["R"] @ R_wb.T)
-        d_pos = float(np.linalg.norm(Br["t"] - t_wb) * 1e3)
+    # Pose du damier, session par session (chaque session a son monde) : images immobiles de l'œil gauche, à
+    # défaut images lentes ; l'œil droit doit retrouver la même.
+    def board_for(lst):
+        pick = [o for o in lst if is_static(o)]
+        if len(pick) < 3:
+            pick = [o for o in lst if is_slow(o)]
+        if len(pick) < 3:
+            return None
+        sp = L.spread(*L.world_board(pick, D))
+        return sp["R"], sp["t"]
+
+    boards, lr = {}, []
+    for lb in sessions:
+        bl = board_for(obs.get((lb, "left"), []))
+        br = board_for(obs.get((lb, "right"), []))
+        if bl is not None:
+            boards[lb] = bl
+            if br is not None:
+                lr.append((L.angle_deg(br[0] @ bl[0].T), float(np.linalg.norm(br[1] - bl[1]) * 1e3)))
+        elif br is not None:
+            boards[lb] = br
+    missing = [lb for lb in sessions if lb not in boards]
+    if missing:
+        rep += [f"Sessions sans assez d'images lentes pour situer le damier, écartées : {', '.join(missing)}.", ""]
+    obs = {k: v for k, v in obs.items() if k[0] in boards}
+
+    def bw(o):
+        return boards[o.session]
+
+    if lr:
+        d_ang, d_pos = float(np.median([a for a, _ in lr])), float(np.median([m for _, m in lr]))
         res["left_right_board"] = {"deg": d_ang, "mm": d_pos}
-        rep += [f"Pose du damier vue par l'œil droit contre l'œil gauche : {f(d_ang)}° et {f(d_pos, 1)} mm d'écart "
-                "(extrinsèques MRUK des deux caméras cohérentes si quelques mm).", ""]
+        rep += [f"Pose du damier vue par l'œil droit contre l'œil gauche (médiane des sessions) : {f(d_ang)}° et "
+                f"{f(d_pos, 1)} mm d'écart (extrinsèques MRUK des deux caméras cohérentes si quelques mm).", ""]
 
     # Erreur de reprojection de la formule : coins projetés avec la pose MRUK convertie.
     rep += ["Erreur de reprojection avec la pose MRUK convertie (RMS par image, px) :", "",
@@ -160,7 +185,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
                 K[1, 2] = cams[(lb, e)].height - 1 - K[1, 2]
             for o in lst:
                 R_wc, t_wc = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
-                uv = L.project(obj, R_wb, t_wb, R_wc, t_wc, K)
+                uv = L.project(obj, *bw(o), R_wc, t_wc, K)
                 err = float(np.sqrt(np.mean(np.sum((uv - o.corners) ** 2, axis=1))))
                 (errs_s if is_static(o) else errs_m).append(err)
                 pnp_r.append(o.rms)
@@ -186,7 +211,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
         if len(st) < 3 or len(mv) < 5:
             rep.append(f"| {e} | trop peu d'images | | |")
             continue
-        vis = {id(o): L.vision_camera(o, R_wb, t_wb)[0] for o in allo}
+        vis = {id(o): L.vision_camera(o, *bw(o))[0] for o in allo}
         mr = {id(o): L.unity_to_cv(o.frame.pos, o.frame.quat, D)[0] for o in allo}
         hm = {o.session: hmds[o.session] for o in allo}
         X_v = L.mean_rotation([hm[o.session].rot_at(o.t).T @ vis[id(o)] for o in st])
@@ -216,7 +241,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
             if ee != e:
                 continue
             for o in lst:
-                R_v, _ = L.vision_camera(o, R_wb, t_wb)
+                R_v, _ = L.vision_camera(o, *bw(o))
                 R_m, _ = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
                 errs.append(L.log_rot(R_v @ R_m.T))
                 oms.append(o.omega)
@@ -242,17 +267,17 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
     st_b = [p for p in both if is_static(p["left"])]
     rep.append("")
     if len(st_b) >= 3 and len(both) >= 8:
-        R_lr0 = L.mean_rotation([L.vision_camera(p["left"], R_wb, t_wb)[0].T @ L.vision_camera(p["right"], R_wb, t_wb)[0]
+        R_lr0 = L.mean_rotation([L.vision_camera(p["left"], *bw(p["left"]))[0].T @ L.vision_camera(p["right"], *bw(p["right"]))[0]
                                  for p in st_b])
         errs, oms = [], []
         for p in both:
-            Rl = L.vision_camera(p["left"], R_wb, t_wb)[0]
-            Rr = L.vision_camera(p["right"], R_wb, t_wb)[0]
+            Rl = L.vision_camera(p["left"], *bw(p["left"]))[0]
+            Rr = L.vision_camera(p["right"], *bw(p["right"]))[0]
             errs.append(L.log_rot(Rr @ (Rl @ R_lr0).T))
             oms.append(p["left"].omega)
         r = L.lag_from_rotation_errors(errs, oms, min_omega, sign=1.0)
-        base_v = np.median([np.linalg.norm(L.vision_camera(p["right"], R_wb, t_wb)[1] -
-                                           L.vision_camera(p["left"], R_wb, t_wb)[1]) for p in st_b]) * 1e3
+        base_v = np.median([np.linalg.norm(L.vision_camera(p["right"], *bw(p["right"]))[1] -
+                                           L.vision_camera(p["left"], *bw(p["left"]))[1]) for p in st_b]) * 1e3
         base_m = np.median([np.linalg.norm(L.unity_to_cv(p["right"].frame.pos, p["right"].frame.quat, D)[1] -
                                            L.unity_to_cv(p["left"].frame.pos, p["left"].frame.quat, D)[1])
                             for p in st_b]) * 1e3
@@ -282,7 +307,7 @@ def analyze(sessions: dict, square_mm: float, cols: int = 9, rows: int = 6, work
         rp = []
         for o in sel:
             R_wc, t_wc = L.unity_to_cv(o.frame.pos, o.frame.quat, D)
-            uv = L.project(obj, R_wb, t_wb, R_wc, t_wc, K)
+            uv = L.project(obj, *bw(o), R_wc, t_wc, K)
             rp.append(float(np.sqrt(np.mean(np.sum((uv - o.corners) ** 2, axis=1)))))
         pr = [o.rms for o in sel]
         res["speed"].append({"bin": [lo, hi], "n": len(sel), "pnp_med": pct(pr, 50), "pnp_p95": pct(pr, 95),
@@ -351,7 +376,7 @@ def main() -> int:
     ap.add_argument("--square-mm", type=float, required=True, help="côté d'une case, mesuré à la règle")
     ap.add_argument("--cols", type=int, default=9)
     ap.add_argument("--rows", type=int, default=6)
-    ap.add_argument("--workers", type=int, default=0, help="processus de détection (0 : autant que de cœurs)")
+    ap.add_argument("--workers", type=int, default=4, help="processus de détection (défaut 4 : chacun charge des images de 6,5 Mo)")
     ap.add_argument("--static-omega", type=float, default=0.05, help="|ω| sous lequel une image est immobile (rad/s)")
     ap.add_argument("--static-speed", type=float, default=0.01, help="vitesse sous laquelle une image est immobile (m/s)")
     ap.add_argument("--min-omega", type=float, default=0.3, help="|ω| minimal pour estimer un décalage (rad/s)")

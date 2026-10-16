@@ -59,7 +59,9 @@ def head(t: float, t_start: float):
 
 
 def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.002, flip=False, k1=0.0,
-                  duration=16.0, fps=15.0, noise=0.15, seed=0):
+                  duration=16.0, fps=15.0, noise=0.15, seed=0, origin=(0.0, 0.0, 0.0)):
+    """`origin` (lacet, x, z) : monde propre à la session. QuestRealityCapture remet l'origine du suivi à zéro à chaque
+    session : poses du casque et poses MRUK sont écrites dans ce monde-là, le damier ne bouge pas physiquement."""
     rng = np.random.default_rng(seed)
     s = root / name
     s.mkdir(parents=True)
@@ -68,6 +70,8 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
     t_wb = np.array([-(COLS - 1) * SQUARE / 2000, -(ROWS - 1) * SQUARE / 2000, 0.55])
     X = {"left": (np.eye(3), np.array([-0.032, 0, 0])), "right": (np.eye(3), np.array([0.032, 0, 0]))}
     start = T0
+    R_g = L.exp_rot([0, origin[0], 0])
+    t_g = np.array([origin[1], 0.0, origin[2]])
 
     def cam_pose(eye, t):
         R_h, p_h = head(t, start)
@@ -80,6 +84,7 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
         w.writerow(["unix_time", "ovr_timestamp", "pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z", "rot_w"])
         for t in np.arange(start - 0.5, start + duration + 0.5, 0.001):
             R_h, p_h = head(t, start)
+            R_h, p_h = R_g @ R_h, R_g @ p_h + t_g
             q = L.mat_to_quat(L.S @ R_h @ L.S)
             p = L.S @ p_h
             w.writerow([int(math.floor(t * 1000)), f"{t + OVR_OFFSET:.9f}", *p, *q])
@@ -102,6 +107,7 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
                 corners[eye][name_] = uv
             # Pose MRUK : celle de la caméra à l'instant capture + tau (l'œil droit à l'instant du gauche + tau).
             R_m, t_m = cam_pose(eye, ts + delta + tau)
+            R_m, t_m = R_g @ R_m, R_g @ t_m + t_g
             q_u = L.mat_to_quat(L.S @ R_m @ D_SPEC)
             p_u = L.S @ t_m
             rows.append([k + 1, name_, int(ts * 1e3), round(ts * 1e6), *p_u, *q_u, "true"])
@@ -125,7 +131,8 @@ def write_session(root: Path, name: str, *, delta=-0.030, tau=0.004, stereo=0.00
 @pytest.fixture(scope="module")
 def spec_result(tmp_path_factory):
     root = tmp_path_factory.mktemp("sp2")
-    sessions = {"B": write_session(root, "B", seed=1), "D": write_session(root, "D", seed=2)}
+    # Deux sessions, deux mondes : l'analyse doit situer le damier dans chacun.
+    sessions = {"B": write_session(root, "B", seed=1), "D": write_session(root, "D", seed=2, origin=(0.8, 0.3, -0.2))}
     return analyze.analyze(sessions, SQUARE, COLS, ROWS, workers=1)[1]
 
 

@@ -303,6 +303,23 @@ def spread(Rs, ts) -> dict:
             "pos_med_mm": float(np.median(dp)), "pos_p95_mm": float(np.percentile(dp, 95))}
 
 
+def pooled_spread(groups) -> dict:
+    """Dispersion de la pose du damier autour de sa moyenne propre à chaque groupe (une session = un monde : l'origine
+    du suivi est remise à zéro à chaque session de capture)."""
+    da, dp = [], []
+    for Rs, ts in groups:
+        if len(Rs) < 3:
+            continue
+        Rm = mean_rotation(Rs)
+        tm = np.median(ts, axis=0)
+        da += [angle_deg(R @ Rm.T) for R in Rs]
+        dp += list(np.linalg.norm(np.asarray(ts) - tm, axis=1) * 1e3)
+    if not da:
+        return {}
+    return {"rot_med_deg": float(np.median(da)), "rot_p95_deg": float(np.percentile(da, 95)),
+            "pos_med_mm": float(np.median(dp)), "pos_p95_mm": float(np.percentile(dp, 95)), "n": len(da)}
+
+
 def world_board(obs: list[Obs], cam_sign: np.ndarray):
     Rs, ts = [], []
     for o in obs:
